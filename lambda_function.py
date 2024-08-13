@@ -30,7 +30,12 @@ def build_handler():
             
             # Extract and validate feedback from the request body
             feedback = json.loads(event.get('body', '{}')).get('feedback')
-
+            if feedback is None or not isinstance(feedback, int) or feedback not in [0, 1]:
+                logger.error("Invalid feedback value: Must be an integer 0 or 1")
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps('Invalid feedback value: Must be an integer 0 or 1')
+                }
 
             # Prepare feedback data to be saved
             feedback_data = json.dumps({
