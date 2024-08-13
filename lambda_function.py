@@ -28,16 +28,9 @@ def build_handler():
             # Extract questionId from path parameters
             question_id = event['pathParameters']['questionId']
             
-            # Extract feedback from the request body
-            feedback = int(json.loads(event.get('body', '{}')).get('feedback'))
+            # Extract and validate feedback from the request body
+            feedback = json.loads(event.get('body', '{}')).get('feedback')
 
-            # Validate feedback value
-            if feedback not in [0, 1]:
-                logger.error("Invalid feedback value: Must be an integer 0 or 1")
-                return {
-                    'statusCode': 400,
-                    'body': json.dumps('Invalid feedback value: Must be an integer 0 or 1')
-                }
 
             # Prepare feedback data to be saved
             feedback_data = json.dumps({
@@ -72,7 +65,6 @@ def build_handler():
                 'statusCode': 500,
                 'body': json.dumps('Internal server error')
             }
-
 
     return handler
 
