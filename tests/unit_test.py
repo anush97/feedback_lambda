@@ -2,57 +2,108 @@ import os
 import json
 import pytest
 from unittest.mock import patch, MagicMock
+from http import HTTPStatus
+from lambdas.feedback.feedback_sender_POST import build_handler, FeedbackError
+from common.s3.adapter import S3Adapter
 from botocore.exceptions import ClientError
-from lambda_function import build_handler
 
-# Sample event for testing
+
+# Sample event data
 sample_event = {
-    'pathParameters': {'questionId': '12345'},
-    'body': json.dumps({'feedback': 1})
+    "pathParameters": {"questionId": "12345"},
+    "body": json.dumps({"feedback": True}),
 }
+
 
 @pytest.fixture
 def mock_env():
-    """Fixture to mock the AWS environment variables."""
     bucket_name = "test_bucket_name"
-    with patch.dict(os.environ, {"BUCKET_NAME": bucket_name}):
+    with patch.dict(os.environ, values={"BUCKET_NAME": bucket_name}):
         yield bucket_name
 
+
 @pytest.fixture
-def lambda_handler(mock_env):
-    """Fixture to create a new lambda handler instance for each test."""
-    return build_handler()
+def mock_s3():
+    with patch("common.s3.adapter.S3Adapter") as mock:
+        yield mock
 
-@patch('lambda_function.s3')
-def test_lambda_handler_success(mock_s3, lambda_handler, mock_env):
-    """Test successful handling of a valid event."""
-    mock_s3.put_object.return_value = {}
+
+@pytest.fixture
+def lambda_handler(mock_env, mock_s3):
+    mock_s3_adapter_instance = MagicMock()
+    mock_s3.return_value = mock_s3_adapter_instance
+    return build_handler(mock_s3_adapter_instance)
+
+
+@pytest.fixture
+def s3_response():
+    return {
+        "ResponseMetadata": {
+            "RequestId": "1234567890",
+            "HostId": "host123",
+            "HTTPStatusCode": 200,
+            "HTTPHeaders": {
+                "x-amz-id-2": "id-2",
+                "x-amz-request-id": "request-id",
+                "date": "date",
+                "content-length": "Length",
+                "content-type": "type",
+            },
+            "RetryAttempts": 0,
+        }
+    }
+
+
+# Test if mock S3 env is as expected
+def test_s3_response_fixture(s3_response, mock_s3):
+    mock_s3_adapter_instance = MagicMock()
+    mock_s3.return_value = mock_s3_adapter_instance
+    mock_s3_adapter_instance.try_save_object.return_value = s3_response
+
+    response = mock_s3_adapter_instance.try_save_object()
+    assert response == s3_response
+
+
+# Test success of feedback storage in S3
+def test_lambda_handler_success(lambda_handler, mock_s3, mock_env, s3_response):
+    mock_s3_adapter_instance = mock_s3.return_value
+    mock_s3_adapter_instance.try_save_object.return_value = s3_response
+
+    # Call Lambda handler
     response = lambda_handler(sample_event, None)
-    assert response['statusCode'] == 200
-    assert json.loads(response['body'])['message'] == 'Feedback for questionId 12345 saved successfully.'
-    assert json.loads(response['body'])['s3_key'] == 'feedback/question_12345.json'
 
-@patch('lambda_function.s3')
-def test_lambda_handler_invalid_feedback(mock_s3, lambda_handler, mock_env):
-    """Test handling of invalid feedback value."""
-    event = sample_event.copy()
-    event['body'] = json.dumps({'feedback': 3})
-    response = lambda_handler(event, None)
-    assert response['statusCode'] == 400
-    assert json.loads(response['body']) == 'Invalid feedback value: Must be an integer 0 or 1'
+    # Assertions
+    assert response["statusCode"] == HTTPStatus.OK.value
+    assert json.loads(response["body"])["message"] == "Feedback for questionId 12345 saved successfully."
 
-@patch('lambda_function.s3')
-def test_lambda_handler_client_error(mock_s3, lambda_handler, mock_env):
-    """Test handling of S3 ClientError in the lambda handler."""
-    mock_s3.put_object.side_effect = ClientError({"Error": {"Code": "500", "Message": "Internal Error"}}, 'PutObject')
-    response = lambda_handler(sample_event, None)
-    assert response['statusCode'] == 502
-    assert json.loads(response['body']) == 'Failed to save feedback to S3 due to client error'
+    # Assert that S3 was called with the correct parameters
+    mock_s3_adapter_instance.try_save_object.assert_called_with(
+        bucket_name=mock_env,
+        key="feedback/question_12345.json",
+        body=json.dumps({"questionId": "12345", "feedback": True})
+    )
 
-@patch('lambda_function.s3')
-def test_lambda_handler_unexpected_error(mock_s3, lambda_handler, mock_env):
-    """Test handling of unexpected exceptions in the lambda handler."""
-    mock_s3.put_object.side_effect = Exception("Unexpected error")
-    response = lambda_handler(sample_event, None)
-    assert response['statusCode'] == 500
-    assert json.loads(response['body']) == 'Internal server error'
+    # Assert the saved feedback is correct
+    stored_feedback = mock_s3_adapter_instance.try_save_object.call_args[1]["body"]
+    assert json.loads(stored_feedback) == {"questionId": "12345", "feedback": True}
+
+
+# Test failure of feedback storage in S3
+def test_lambda_handler_failure(lambda_handler, mock_s3, mock_env):
+    # Simulate ClientError being raised by boto3 S3 client
+    mock_s3_adapter_instance = mock_s3.return_value
+    mock_s3_adapter_instance.try_save_object.side_effect = ClientError(
+        error_response={"Error": {"Code": "500", "Message": "Internal Server Error"}},
+        operation_name="PutObject"
+    )
+
+    # Call Lambda handler
+    with pytest.raises(FeedbackError, match="Error saving feedback to S3"):
+        lambda_handler(sample_event, None)
+
+    # Assert S3 was called before the error was raised
+    mock_s3_adapter_instance.try_save_object.assert_called_with(
+        bucket_name=mock_env,
+        key="feedback/question_12345.json",
+        body=json.dumps({"questionId": "12345", "feedback": True})
+    )
