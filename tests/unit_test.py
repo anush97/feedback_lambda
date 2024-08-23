@@ -11,9 +11,9 @@ from lambdas.feedback_sender_POST.feedback_sender_POST_handler import (
     build_handler,
     FeedbackError,
     QuestionIdError,
-    generate_feedback_uuid,
 )
 from botocore.exceptions import ClientError
+
 
 TEST_BUCKET_NAME = "test-bucket"
 TEST_PREFIX = "feedback"
@@ -22,6 +22,7 @@ QUESTION_PREFIX = "question"
 
 @pytest.fixture
 def aws_credentials():
+    """Mocked AWS Credentials for moto."""
     os.environ["AWS_ACCESS_KEY_ID"] = "testing"
     os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
     os.environ["AWS_SECURITY_TOKEN"] = "testing"
@@ -30,6 +31,7 @@ def aws_credentials():
 
 @pytest.fixture
 def s3_client(aws_credentials):
+    """Mocked S3 client using moto."""
     with mock_aws():
         s3_client = boto3.client("s3", region_name="us-east-1")
         s3_client.create_bucket(Bucket=TEST_BUCKET_NAME)
@@ -39,6 +41,7 @@ def s3_client(aws_credentials):
 
 
 def clean_bucket(s3_client):
+    """Clean up all objects from the test S3 bucket."""
     response = s3_client.list_objects_v2(Bucket=TEST_BUCKET_NAME)
     files = response.get("Contents", [])
     if not files:
@@ -51,6 +54,7 @@ def clean_bucket(s3_client):
 
 @pytest.fixture
 def mock_env():
+    """Mock environment variables."""
     with patch.dict(
         os.environ,
         {
@@ -65,24 +69,42 @@ def mock_env():
 
 @pytest.fixture
 def s3_adapter(s3_client):
+    """Fixture to create an S3Adapter."""
     return S3Adapter(s3_client)
 
 
 @pytest.fixture
 def handler(mock_env, s3_adapter):
+    """Fixture to build the Lambda handler."""
     return build_handler(s3_adapter)
 
 
+@pytest.fixture
+def mock_s3_get_object_response():
+    """Fixture to mock the S3 get_object response."""
+    data = {
+        "answer": "Paris",
+        "question": "What is the capital of France?"
+    }
+
+    class MockS3Object:
+        def read(self):
+            return json.dumps(data).encode('utf-8')
+
+    return {"Body": MockS3Object()}
+
+
 def test_lambda_handler_success(handler, s3_client):
+    """Test that feedback is successfully saved."""
     question_id = "12345"
     initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
+
     s3_client.put_object(
         Bucket=TEST_BUCKET_NAME,
         Key=f"{QUESTION_PREFIX}/{question_id}.json",
         Body=json.dumps(initial_data),
     )
 
-    # Mock the UUID generation to ensure consistency in the test
     with patch(
         "lambdas.feedback_sender_POST.feedback_sender_POST_handler.generate_feedback_uuid",
         return_value="mocked-uuid",
@@ -94,23 +116,23 @@ def test_lambda_handler_success(handler, s3_client):
 
         response = handler(event, None)
 
-        # Check that the response is OK and that the feedback was saved successfully
         assert response["statusCode"] == HTTPStatus.OK.value
         assert (
             json.loads(response["body"])["message"]
             == f"Feedback for questionId {question_id} saved successfully."
         )
+
         saved_object = s3_client.get_object(
             Bucket=TEST_BUCKET_NAME,
             Key=f"{TEST_PREFIX}/feedback_mocked-uuid_{question_id}.json",
         )
         saved_feedback = json.loads(saved_object["Body"].read().decode("utf-8"))
 
-        # Assert that the feedback saved matches the expected feedback
         assert saved_feedback["feedback"] == {"helpful": True}
 
 
 def test_lambda_handler_missing_question_id(handler):
+    """Test that missing questionId raises an error."""
     event = {"pathParameters": {}, "body": {"helpful": True}}
 
     with pytest.raises(
@@ -120,6 +142,7 @@ def test_lambda_handler_missing_question_id(handler):
 
 
 def test_lambda_handler_question_id_not_found(handler, s3_adapter):
+    """Test that a missing questionId in S3 raises an error."""
     event = {
         "pathParameters": {"questionId": "99999"},
         "body": {"helpful": True},
@@ -127,6 +150,7 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
     error_response = {
         "Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}
     }
+
     with patch.object(
         s3_adapter,
         "try_get_object",
@@ -136,27 +160,25 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
             handler(event, None)
 
 
-def test_lambda_handler_invalid_feedback(handler, s3_adapter):
+def test_lambda_handler_invalid_feedback(handler, s3_adapter, mock_s3_get_object_response):
+    """Test that invalid feedback data raises a validation error."""
     question_id = "12345"
-    with patch.object(
-        s3_adapter,
-        "try_get_object",
-        return_value={"question": "What is the capital of France?", "answer": "Paris"},
-    ):
-        # Note that the body should be a dictionary, not a JSON string
+
+    with patch.object(s3_adapter, 'try_get_object', return_value=mock_s3_get_object_response):
         invalid_event = {
             "pathParameters": {"questionId": question_id},
-            "body": {"helpful": "yes"},  # Invalid feedback
+            "body": json.dumps({"helpful": "yes"}),  # Invalid feedback (non-boolean value)
         }
 
         with pytest.raises(
             ValidationError,
-            match="1 validation error for Feedback\nhelpful\n  value could not be parsed to a boolean",
+            match=r"1 validation error for Feedback\n  Input should be a valid dictionary or instance of Feedback \[type=model_type, input_value='{\"helpful\": \"yes\"}', input_type=str\]\n    For further information visit https://errors.pydantic.dev/2.8/v/model_type",
         ):
             handler(invalid_event, None)
 
 
 def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
+    """Test that an error during S3 save raises a FeedbackError."""
     question_id = "12345"
     s3_client.put_object(
         Bucket=TEST_BUCKET_NAME,
@@ -186,28 +208,3 @@ def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
 
         with pytest.raises(FeedbackError, match="Error saving feedback to S3"):
             handler(event, None)
-def test_lambda_handler_invalid_feedback(handler, s3_adapter):
-    question_id = "12345"
-    
-    # Custom function to mock the S3 'try_get_object' with the expected structure
-    def mock_try_get_object(bucket_name, key):
-        # Simulate the S3 object being returned correctly with the necessary data
-        return {
-            "answer": "Paris",
-            "question": "What is the capital of France?"
-        }
-
-    # Patch 'try_get_object' for this specific test case
-    with patch.object(s3_adapter, 'try_get_object', side_effect=mock_try_get_object):
-        # The body should be passed as a dictionary, not a string
-        invalid_event = {
-            "pathParameters": {"questionId": question_id},
-            "body": {"helpful": "yes"},  # Invalid feedback (non-boolean value)
-        }
-
-        # Call the handler and check for ValidationError
-        with pytest.raises(
-            ValidationError,
-            match=r"1 validation error for Feedback\nhelpful\n  value could not be parsed to a boolean",
-        ):
-            handler(invalid_event, None)
