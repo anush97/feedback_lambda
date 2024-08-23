@@ -186,3 +186,28 @@ def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
 
         with pytest.raises(FeedbackError, match="Error saving feedback to S3"):
             handler(event, None)
+def test_lambda_handler_invalid_feedback(handler, s3_adapter):
+    question_id = "12345"
+    
+    # Custom function to mock the S3 'try_get_object' with the expected structure
+    def mock_try_get_object(bucket_name, key):
+        # Simulate the S3 object being returned correctly with the necessary data
+        return {
+            "answer": "Paris",
+            "question": "What is the capital of France?"
+        }
+
+    # Patch 'try_get_object' for this specific test case
+    with patch.object(s3_adapter, 'try_get_object', side_effect=mock_try_get_object):
+        # The body should be passed as a dictionary, not a string
+        invalid_event = {
+            "pathParameters": {"questionId": question_id},
+            "body": {"helpful": "yes"},  # Invalid feedback (non-boolean value)
+        }
+
+        # Call the handler and check for ValidationError
+        with pytest.raises(
+            ValidationError,
+            match=r"1 validation error for Feedback\nhelpful\n  value could not be parsed to a boolean",
+        ):
+            handler(invalid_event, None)
