@@ -208,3 +208,28 @@ def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
 
         with pytest.raises(FeedbackError, match="Error saving feedback to S3"):
             handler(event, None)
+            
+def test_lambda_handler_invalid_feedback(handler, s3_client):
+    """Test that invalid feedback data raises a validation error."""
+    question_id = "12345"
+
+    # Simulate S3 object with the necessary data using mock_aws
+    s3_client.put_object(
+        Bucket=TEST_BUCKET_NAME,
+        Key=f"{QUESTION_PREFIX}/{question_id}.json",
+        Body=json.dumps({"answer": "Paris", "question": "What is the capital of France?"}),
+    )
+
+    # The body should be passed as a JSON string
+    invalid_event = {
+        "pathParameters": {"questionId": question_id},
+        "body": json.dumps({"helpful": "yes"}),  # Invalid feedback (non-boolean value)
+    }
+
+    # Assert that ValidationError is raised
+    with pytest.raises(
+        ValidationError,
+        match=r"1 validation error for Feedback\n  Input should be a valid dictionary or instance of Feedback \[type=model_type, input_value='{\"helpful\": \"yes\"}', input_type=str\]\n    For further information visit https://errors.pydantic.dev/2.8/v/model_type",
+    ):
+        handler(invalid_event, None)
+
