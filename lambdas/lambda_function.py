@@ -89,6 +89,16 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
 
         # Get and validate feedback from the event body
         feedback_data = event.get("body", {})
+        
+        # Log the feedback_data to ensure it's properly parsed
+        logger.info(f"Feedback data before validation: {feedback_data}")
+        
+        # Ensure feedback_data is a dictionary
+        if not isinstance(feedback_data, dict):
+            logger.error(f"Feedback data is not a dictionary: {feedback_data}")
+            raise ValidationError(f"Invalid feedback data format")
+
+        # Validate feedback
         feedback = validate_feedback(feedback_data)
         dict_data["feedback"] = feedback.model_dump()
 

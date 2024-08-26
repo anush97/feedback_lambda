@@ -95,7 +95,7 @@ def test_lambda_handler_success(handler, s3_client):
     ):
         event = {
             "pathParameters": {"questionId": question_id},
-            "body": {"helpful": True},
+            "body": json.dumps({"helpful": True}),  # Note the use of json.dumps here
         }
 
         response = handler(event, None)
@@ -117,7 +117,7 @@ def test_lambda_handler_success(handler, s3_client):
 
 def test_lambda_handler_missing_question_id(handler):
     """Test that missing questionId raises an error."""
-    event = {"pathParameters": {}, "body": {"helpful": True}}
+    event = {"pathParameters": {}, "body": json.dumps({"helpful": True})}  # Use json.dumps
 
     with pytest.raises(
         QuestionIdError, match="questionId is missing from pathParameters."
@@ -129,7 +129,7 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
     """Test that a missing questionId in S3 raises an error."""
     event = {
         "pathParameters": {"questionId": "99999"},
-        "body": {"helpful": True},
+        "body": json.dumps({"helpful": True}),  # Use json.dumps
     }
     error_response = {
         "Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}
@@ -160,7 +160,7 @@ def test_lambda_handler_invalid_feedback(handler, s3_client):
     # Passing an invalid feedback event (non-boolean value)
     invalid_event = {
         "pathParameters": {"questionId": question_id},
-        "body": {"helpful": "yes"},  # Invalid feedback (non-boolean value)
+        "body": json.dumps({"helpful": "yes"}),  # Invalid feedback (non-boolean value)
     }
 
     # Assert that ValidationError is raised
@@ -169,7 +169,6 @@ def test_lambda_handler_invalid_feedback(handler, s3_client):
         match=r"1 validation error for Feedback\n  Input should be a valid dictionary or instance of Feedback \[type=model_type, input_value={'helpful': 'yes'}, input_type=dict\]",
     ):
         handler(invalid_event, None)
-
 
 
 def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
@@ -198,7 +197,7 @@ def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
     ):
         event = {
             "pathParameters": {"questionId": question_id},
-            "body": {"helpful": True},
+            "body": json.dumps({"helpful": True}),  # Use json.dumps
         }
 
         with pytest.raises(FeedbackError, match="Error saving feedback to S3"):
