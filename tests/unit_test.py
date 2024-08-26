@@ -11,6 +11,7 @@ from lambdas.feedback_sender_POST.feedback_sender_POST_handler import (
     build_handler,
     FeedbackError,
     QuestionIdError,
+    fetch_existing_data_from_s3
 )
 from botocore.exceptions import ClientError
 
@@ -79,12 +80,29 @@ def handler(mock_env, s3_adapter):
     return build_handler(s3_adapter)
 
 
+# Testing the fetch_existing_data_from_s3 function
+def test_fetch_existing_data_from_s3(s3_adapter, s3_client):
+    """Test that fetching existing data from S3 works as expected."""
+    question_id = "12345"
+    initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
+    question_s3_key = f"{QUESTION_PREFIX}/{question_id}.json"
+
+    s3_client.put_object(
+        Bucket=TEST_BUCKET_NAME,
+        Key=question_s3_key,
+        Body=json.dumps(initial_data),
+    )
+
+    fetched_data = fetch_existing_data_from_s3(s3_adapter, TEST_BUCKET_NAME, question_s3_key)
+
+    assert fetched_data == initial_data
+
+
 def test_lambda_handler_success(handler, s3_client):
     """Test that feedback is successfully saved."""
     question_id = "12345"
     initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
 
-    # Simulate the S3 object being available in the mock S3 client
     s3_client.put_object(
         Bucket=TEST_BUCKET_NAME,
         Key=f"{QUESTION_PREFIX}/{question_id}.json",
@@ -94,13 +112,7 @@ def test_lambda_handler_success(handler, s3_client):
     with patch(
         "lambdas.feedback_sender_POST.feedback_sender_POST_handler.generate_feedback_uuid",
         return_value="mocked-uuid",
-    ), patch.object(S3Adapter, "try_get_object") as mock_try_get_object, patch.object(S3Adapter, "try_save_object") as mock_try_save_object:
-        
-        # Mock the return of the S3 object
-        mock_try_get_object.return_value = {
-            "Body": json.dumps(initial_data).encode("utf-8")
-        }
-
+    ):
         event = {
             "pathParameters": {"questionId": question_id},
             "body": {"helpful": True},
@@ -108,19 +120,19 @@ def test_lambda_handler_success(handler, s3_client):
 
         response = handler(event, None)
 
-        # Check that the response is OK and that the feedback was saved successfully
         assert response["statusCode"] == HTTPStatus.OK.value
         assert (
             json.loads(response["body"])["message"]
             == f"Feedback for questionId {question_id} saved successfully."
         )
 
-        # Ensure the feedback was saved to S3
-        mock_try_save_object.assert_called_once_with(
-            TEST_BUCKET_NAME,
-            f"{TEST_PREFIX}/feedback_mocked-uuid_{question_id}.json",
-            {'question': 'What is the capital of France?', 'answer': 'Paris', 'feedback': {'helpful': True}}
+        saved_object = s3_client.get_object(
+            Bucket=TEST_BUCKET_NAME,
+            Key=f"{TEST_PREFIX}/feedback_mocked-uuid_{question_id}.json",
         )
+        saved_feedback = json.loads(saved_object["Body"].read().decode("utf-8"))
+
+        assert saved_feedback["feedback"] == {"helpful": True}
 
 
 def test_lambda_handler_missing_question_id(handler):

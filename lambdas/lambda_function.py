@@ -8,7 +8,7 @@ from http import HTTPStatus
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, TypeAdapter
 from .s3_adapter import S3Adapter, body_as_dict
-from common import decorator
+from common.decorator import load_json_body  # Assuming you have placed the decorator in the common.decorator module
 
 
 class FeedbackError(Exception):
@@ -51,15 +51,30 @@ def save_feedback_to_s3(
         logger.error(f"Error saving feedback to S3: {e}")
         raise FeedbackError("Error saving feedback to S3") from e
 
-@load_json_body  
+
+# New function to fetch existing data from S3
+def fetch_existing_data_from_s3(s3_adapter: S3Adapter, s3_bucket: str, question_s3_key: str) -> Dict[str, Any]:
+    try:
+        existing_data: Optional[Dict[str, Any]] = s3_adapter.try_get_object(s3_bucket, question_s3_key)
+        if existing_data is None:
+            logger.error(
+                f"No such object found in S3: bucket={s3_bucket}, key={question_s3_key}"
+            )
+            raise QuestionIdError(f"No such object found in S3: bucket={s3_bucket}, key={question_s3_key}")
+        return body_as_dict(existing_data)
+    except ClientError as e:
+        logger.error(f"Error fetching data from S3 for key {question_s3_key}: {e}")
+        raise QuestionIdError(f"Data for key {question_s3_key} not found in S3.") from e
+
+
+# Function to build the Lambda handler with the decorator selectively applied
 def build_handler(s3_adapter: S3Adapter) -> Any:
     s3_bucket: Optional[str] = os.environ.get("BUCKET_NAME")
     feedback_prefix: Optional[str] = os.environ.get("FEEDBACK_PREFIX", "")
     question_prefix: Optional[str] = os.environ.get("QUESTION_PREFIX", "")
 
-    def handler(
-        event: Dict[str, Any], context: Optional[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    @load_json_body  # Apply the decorator here to process the incoming event body
+    def handler(event: Dict[str, Any], context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         logger.info(f"Received event: {json.dumps(event)}")
 
         # Extract questionId from the event's pathParameters
@@ -75,49 +90,26 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
         question_s3_key: str = f"{question_prefix}/{question_id}.json"
         logger.info(f"Getting question data from S3 with key: {question_s3_key}")
 
-        # Retrieve and parse the existing question data from the S3 bucket
-        try:
-            existing_data: Optional[Dict[str, Any]] = s3_adapter.try_get_object(
-                s3_bucket, question_s3_key
-            )
-            if existing_data is None:
-                logger.error(
-                    f"No such object found in S3: bucket={s3_bucket}, key={question_s3_key}"
-                )
-                raise QuestionIdError(
-                    f"No such object found in S3: bucket={s3_bucket}, key={question_s3_key}"
-                )
-        except ClientError as e:
-            logger.error(
-                f"Error fetching data from S3 for questionId {question_id}: {e}"
-            )
-            raise QuestionIdError(f"questionId {question_id} not found in S3.") from e
+        # Fetch existing data from S3 using the separate function
+        dict_data: Dict[str, Any] = fetch_existing_data_from_s3(s3_adapter, s3_bucket, question_s3_key)
 
-        dict_data: Dict[str, Any] = body_as_dict(existing_data)
-
-        # Get and validate feedback from the event body
+        # Get and validate feedback from the event body (processed by the decorator)
         feedback_data = event.get("body", {})
         feedback = validate_feedback(feedback_data)
         dict_data["feedback"] = feedback.dict()
 
         # Construct the S3 key for saving the feedback data with the UUID and questionId
-        feedback_s3_key: str = (
-            f"{feedback_prefix}/feedback_{feedback_uuid}_{question_id}.json"
-        )
-        logger.info(
-            f"Saving feedback with question data to S3 with key: {feedback_s3_key}"
-        )
+        feedback_s3_key: str = f"{feedback_prefix}/feedback_{feedback_uuid}_{question_id}.json"
+        logger.info(f"Saving feedback with question data to S3 with key: {feedback_s3_key}")
 
         # Save the feedback with question data back to the history bucket
         save_feedback_to_s3(s3_adapter, s3_bucket, feedback_s3_key, dict_data)
 
         return {
             "statusCode": HTTPStatus.OK.value,
-            "body": json.dumps(
-                {
-                    "message": f"Feedback for questionId {question_id} saved successfully."
-                }
-            ),
+            "body": json.dumps({
+                "message": f"Feedback for questionId {question_id} saved successfully."
+            }),
         }
 
     return handler
