@@ -8,9 +8,9 @@ from http import HTTPStatus
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, TypeAdapter
 from .s3_adapter import S3Adapter, body_as_dict
+from common import decorator
 
 
-# Custom exception classes for better error handling
 class FeedbackError(Exception):
     pass
 
@@ -19,7 +19,6 @@ class QuestionIdError(FileNotFoundError):
     pass
 
 
-# Initialize logger
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
@@ -29,7 +28,6 @@ class Feedback(BaseModel):
     helpful: bool
 
 
-# Function to validate feedback data using Pydantic
 def validate_feedback(feedback_data: dict) -> Feedback:
     return TypeAdapter(Feedback).validate_python(feedback_data)
 
@@ -45,20 +43,23 @@ def save_feedback_to_s3(
 ) -> None:
     try:
         logger.info(f"Saving feedback to S3: bucket={s3_bucket}, key={s3_key}")
-        s3_adapter.try_save_object(bucket_name=s3_bucket, key=s3_key, body=feedback_data)
+        s3_adapter.try_save_object(
+            bucket_name=s3_bucket, key=s3_key, body=feedback_data
+        )
         logger.info("Feedback saved to S3 successfully")
     except ClientError as e:
         logger.error(f"Error saving feedback to S3: {e}")
         raise FeedbackError("Error saving feedback to S3") from e
 
-
-# Function to build the Lambda handler
+@load_json_body  
 def build_handler(s3_adapter: S3Adapter) -> Any:
     s3_bucket: Optional[str] = os.environ.get("BUCKET_NAME")
     feedback_prefix: Optional[str] = os.environ.get("FEEDBACK_PREFIX", "")
     question_prefix: Optional[str] = os.environ.get("QUESTION_PREFIX", "")
 
-    def handler(event: Dict[str, Any], context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def handler(
+        event: Dict[str, Any], context: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         logger.info(f"Received event: {json.dumps(event)}")
 
         # Extract questionId from the event's pathParameters
@@ -87,7 +88,9 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
                     f"No such object found in S3: bucket={s3_bucket}, key={question_s3_key}"
                 )
         except ClientError as e:
-            logger.error(f"Error fetching data from S3 for questionId {question_id}: {e}")
+            logger.error(
+                f"Error fetching data from S3 for questionId {question_id}: {e}"
+            )
             raise QuestionIdError(f"questionId {question_id} not found in S3.") from e
 
         dict_data: Dict[str, Any] = body_as_dict(existing_data)
@@ -98,8 +101,12 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
         dict_data["feedback"] = feedback.dict()
 
         # Construct the S3 key for saving the feedback data with the UUID and questionId
-        feedback_s3_key: str = f"{feedback_prefix}/feedback_{feedback_uuid}_{question_id}.json"
-        logger.info(f"Saving feedback with question data to S3 with key: {feedback_s3_key}")
+        feedback_s3_key: str = (
+            f"{feedback_prefix}/feedback_{feedback_uuid}_{question_id}.json"
+        )
+        logger.info(
+            f"Saving feedback with question data to S3 with key: {feedback_s3_key}"
+        )
 
         # Save the feedback with question data back to the history bucket
         save_feedback_to_s3(s3_adapter, s3_bucket, feedback_s3_key, dict_data)
@@ -107,14 +114,15 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
         return {
             "statusCode": HTTPStatus.OK.value,
             "body": json.dumps(
-                {"message": f"Feedback for questionId {question_id} saved successfully."}
+                {
+                    "message": f"Feedback for questionId {question_id} saved successfully."
+                }
             ),
         }
 
     return handler
 
 
-# Setup the handler if the script is not in test mode
 if not bool(os.environ.get("TEST_FLAG", False)):
     region: str = os.environ.get("AWS_REGION", "ca-central-1")
     s3_client = boto3.client("s3", region_name=region)

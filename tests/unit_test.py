@@ -79,21 +79,6 @@ def handler(mock_env, s3_adapter):
     return build_handler(s3_adapter)
 
 
-@pytest.fixture
-def mock_s3_get_object_response():
-    """Fixture to mock the S3 get_object response."""
-    data = {
-        "answer": "Paris",
-        "question": "What is the capital of France?"
-    }
-
-    class MockS3Object:
-        def read(self):
-            return json.dumps(data).encode('utf-8')
-
-    return {"Body": MockS3Object()}
-
-
 def test_lambda_handler_success(handler, s3_client):
     """Test that feedback is successfully saved."""
     question_id = "12345"
@@ -111,7 +96,7 @@ def test_lambda_handler_success(handler, s3_client):
     ):
         event = {
             "pathParameters": {"questionId": question_id},
-            "body": {"helpful": True},
+            "body": json.dumps({"helpful": True}),
         }
 
         response = handler(event, None)
@@ -131,9 +116,23 @@ def test_lambda_handler_success(handler, s3_client):
         assert saved_feedback["feedback"] == {"helpful": True}
 
 
+def test_lambda_handler_invalid_json(handler):
+    """Test that invalid JSON in the body raises a BAD REQUEST error."""
+    question_id = "12345"
+    invalid_event = {
+        "pathParameters": {"questionId": question_id},
+        "body": "{invalid_json}"  # Invalid JSON string
+    }
+
+    response = handler(invalid_event, None)
+
+    assert response["statusCode"] == HTTPStatus.BAD_REQUEST
+    assert response["body"] == json.dumps({"error": "BAD REQUEST"})
+
+
 def test_lambda_handler_missing_question_id(handler):
     """Test that missing questionId raises an error."""
-    event = {"pathParameters": {}, "body": {"helpful": True}}
+    event = {"pathParameters": {}, "body": json.dumps({"helpful": True})}
 
     with pytest.raises(
         QuestionIdError, match="questionId is missing from pathParameters."
@@ -145,7 +144,7 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
     """Test that a missing questionId in S3 raises an error."""
     event = {
         "pathParameters": {"questionId": "99999"},
-        "body": {"helpful": True},
+        "body": json.dumps({"helpful": True}),
     }
     error_response = {
         "Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}
@@ -160,21 +159,27 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
             handler(event, None)
 
 
-def test_lambda_handler_invalid_feedback(handler, s3_adapter, mock_s3_get_object_response):
+def test_lambda_handler_invalid_feedback(handler, s3_client):
     """Test that invalid feedback data raises a validation error."""
     question_id = "12345"
 
-    with patch.object(s3_adapter, 'try_get_object', return_value=mock_s3_get_object_response):
-        invalid_event = {
-            "pathParameters": {"questionId": question_id},
-            "body": json.dumps({"helpful": "yes"}),  # Invalid feedback (non-boolean value)
-        }
+    s3_client.put_object(
+        Bucket=TEST_BUCKET_NAME,
+        Key=f"{QUESTION_PREFIX}/{question_id}.json",
+        Body=json.dumps(
+            {"answer": "Paris", "question": "What is the capital of France?"}
+        ),
+    )
+    invalid_event = {
+        "pathParameters": {"questionId": question_id},
+        "body": json.dumps({"helpful": "yes"}),  # Invalid feedback (non-boolean value)
+    }
 
-        with pytest.raises(
-            ValidationError,
-            match=r"1 validation error for Feedback\n  Input should be a valid dictionary or instance of Feedback \[type=model_type, input_value='{\"helpful\": \"yes\"}', input_type=str\]\n    For further information visit https://errors.pydantic.dev/2.8/v/model_type",
-        ):
-            handler(invalid_event, None)
+    with pytest.raises(
+        ValidationError,
+        match=r"1 validation error for Feedback\n  Input should be a valid dictionary or instance of Feedback \[type=model_type, input_value='{\"helpful\": \"yes\"}', input_type=str\]\n ",
+    ):
+        handler(invalid_event, None)
 
 
 def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
@@ -203,33 +208,8 @@ def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
     ):
         event = {
             "pathParameters": {"questionId": question_id},
-            "body": {"helpful": True},
+            "body": json.dumps({"helpful": True}),
         }
 
         with pytest.raises(FeedbackError, match="Error saving feedback to S3"):
             handler(event, None)
-            
-def test_lambda_handler_invalid_feedback(handler, s3_client):
-    """Test that invalid feedback data raises a validation error."""
-    question_id = "12345"
-
-    # Simulate S3 object with the necessary data using mock_aws
-    s3_client.put_object(
-        Bucket=TEST_BUCKET_NAME,
-        Key=f"{QUESTION_PREFIX}/{question_id}.json",
-        Body=json.dumps({"answer": "Paris", "question": "What is the capital of France?"}),
-    )
-
-    # The body should be passed as a JSON string
-    invalid_event = {
-        "pathParameters": {"questionId": question_id},
-        "body": json.dumps({"helpful": "yes"}),  # Invalid feedback (non-boolean value)
-    }
-
-    # Assert that ValidationError is raised
-    with pytest.raises(
-        ValidationError,
-        match=r"1 validation error for Feedback\n  Input should be a valid dictionary or instance of Feedback \[type=model_type, input_value='{\"helpful\": \"yes\"}', input_type=str\]\n    For further information visit https://errors.pydantic.dev/2.8/v/model_type",
-    ):
-        handler(invalid_event, None)
-
