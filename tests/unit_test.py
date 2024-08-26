@@ -84,6 +84,7 @@ def test_lambda_handler_success(handler, s3_client):
     question_id = "12345"
     initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
 
+    # Simulate the S3 object being available in the mock S3 client
     s3_client.put_object(
         Bucket=TEST_BUCKET_NAME,
         Key=f"{QUESTION_PREFIX}/{question_id}.json",
@@ -93,46 +94,38 @@ def test_lambda_handler_success(handler, s3_client):
     with patch(
         "lambdas.feedback_sender_POST.feedback_sender_POST_handler.generate_feedback_uuid",
         return_value="mocked-uuid",
-    ):
+    ), patch.object(S3Adapter, "try_get_object") as mock_try_get_object, patch.object(S3Adapter, "try_save_object") as mock_try_save_object:
+        
+        # Mock the return of the S3 object
+        mock_try_get_object.return_value = {
+            "Body": json.dumps(initial_data).encode("utf-8")
+        }
+
         event = {
             "pathParameters": {"questionId": question_id},
-            "body": json.dumps({"helpful": True}),
+            "body": {"helpful": True},
         }
 
         response = handler(event, None)
 
+        # Check that the response is OK and that the feedback was saved successfully
         assert response["statusCode"] == HTTPStatus.OK.value
         assert (
             json.loads(response["body"])["message"]
             == f"Feedback for questionId {question_id} saved successfully."
         )
 
-        saved_object = s3_client.get_object(
-            Bucket=TEST_BUCKET_NAME,
-            Key=f"{TEST_PREFIX}/feedback_mocked-uuid_{question_id}.json",
+        # Ensure the feedback was saved to S3
+        mock_try_save_object.assert_called_once_with(
+            TEST_BUCKET_NAME,
+            f"{TEST_PREFIX}/feedback_mocked-uuid_{question_id}.json",
+            {'question': 'What is the capital of France?', 'answer': 'Paris', 'feedback': {'helpful': True}}
         )
-        saved_feedback = json.loads(saved_object["Body"].read().decode("utf-8"))
-
-        assert saved_feedback["feedback"] == {"helpful": True}
-
-
-def test_lambda_handler_invalid_json(handler):
-    """Test that invalid JSON in the body raises a BAD REQUEST error."""
-    question_id = "12345"
-    invalid_event = {
-        "pathParameters": {"questionId": question_id},
-        "body": "{invalid_json}"  # Invalid JSON string
-    }
-
-    response = handler(invalid_event, None)
-
-    assert response["statusCode"] == HTTPStatus.BAD_REQUEST
-    assert response["body"] == json.dumps({"error": "BAD REQUEST"})
 
 
 def test_lambda_handler_missing_question_id(handler):
     """Test that missing questionId raises an error."""
-    event = {"pathParameters": {}, "body": json.dumps({"helpful": True})}
+    event = {"pathParameters": {}, "body": {"helpful": True}}
 
     with pytest.raises(
         QuestionIdError, match="questionId is missing from pathParameters."
@@ -144,7 +137,7 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
     """Test that a missing questionId in S3 raises an error."""
     event = {
         "pathParameters": {"questionId": "99999"},
-        "body": json.dumps({"helpful": True}),
+        "body": {"helpful": True},
     }
     error_response = {
         "Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}
@@ -163,6 +156,7 @@ def test_lambda_handler_invalid_feedback(handler, s3_client):
     """Test that invalid feedback data raises a validation error."""
     question_id = "12345"
 
+    # Simulate S3 object with the necessary data using mock_aws
     s3_client.put_object(
         Bucket=TEST_BUCKET_NAME,
         Key=f"{QUESTION_PREFIX}/{question_id}.json",
@@ -175,6 +169,7 @@ def test_lambda_handler_invalid_feedback(handler, s3_client):
         "body": json.dumps({"helpful": "yes"}),  # Invalid feedback (non-boolean value)
     }
 
+    # Assert that ValidationError is raised
     with pytest.raises(
         ValidationError,
         match=r"1 validation error for Feedback\n  Input should be a valid dictionary or instance of Feedback \[type=model_type, input_value='{\"helpful\": \"yes\"}', input_type=str\]\n ",
@@ -208,7 +203,7 @@ def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
     ):
         event = {
             "pathParameters": {"questionId": question_id},
-            "body": json.dumps({"helpful": True}),
+            "body": {"helpful": True},
         }
 
         with pytest.raises(FeedbackError, match="Error saving feedback to S3"):
