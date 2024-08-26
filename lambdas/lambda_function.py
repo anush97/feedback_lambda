@@ -6,7 +6,7 @@ import uuid
 from botocore.exceptions import ClientError
 from http import HTTPStatus
 from typing import Dict, Any, Optional
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from .s3_adapter import S3Adapter, body_as_dict
 from common.decorator import load_json_body
 
@@ -27,6 +27,7 @@ class Feedback(BaseModel):
 
 # Function to validate feedback data using Pydantic
 def validate_feedback(feedback_data: dict) -> Feedback:
+    logger.info(f"Validating feedback: {feedback_data}")  # Debugging log
     return TypeAdapter(Feedback).validate_python(feedback_data)
 
 # Function to generate unique feedback UUIDs
@@ -89,17 +90,14 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
 
         # Get and validate feedback from the event body
         feedback_data = event.get("body", {})
-        
-        # Log the feedback_data to ensure it's properly parsed
-        logger.info(f"Feedback data before validation: {feedback_data}")
-        
-        # Ensure feedback_data is a dictionary
-        if not isinstance(feedback_data, dict):
-            logger.error(f"Feedback data is not a dictionary: {feedback_data}")
-            raise ValidationError(f"Invalid feedback data format")
+        logger.info(f"Feedback data after loading JSON: {feedback_data}")  # Debugging log
 
-        # Validate feedback
-        feedback = validate_feedback(feedback_data)
+        try:
+            feedback = validate_feedback(feedback_data)
+        except ValidationError as e:
+            logger.error(f"Validation error: {e}")  # Debugging log
+            raise
+
         dict_data["feedback"] = feedback.model_dump()
 
         # Construct the S3 key for saving the feedback data with the UUID and questionId
