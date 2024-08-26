@@ -11,10 +11,8 @@ from lambdas.feedback_sender_POST.feedback_sender_POST_handler import (
     build_handler,
     FeedbackError,
     QuestionIdError,
-    fetch_existing_data_from_s3
 )
 from botocore.exceptions import ClientError
-
 
 TEST_BUCKET_NAME = "test-bucket"
 TEST_PREFIX = "feedback"
@@ -80,24 +78,6 @@ def handler(mock_env, s3_adapter):
     return build_handler(s3_adapter)
 
 
-# Testing the fetch_existing_data_from_s3 function
-def test_fetch_existing_data_from_s3(s3_adapter, s3_client):
-    """Test that fetching existing data from S3 works as expected."""
-    question_id = "12345"
-    initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
-    question_s3_key = f"{QUESTION_PREFIX}/{question_id}.json"
-
-    s3_client.put_object(
-        Bucket=TEST_BUCKET_NAME,
-        Key=question_s3_key,
-        Body=json.dumps(initial_data),
-    )
-
-    fetched_data = fetch_existing_data_from_s3(s3_adapter, TEST_BUCKET_NAME, question_s3_key)
-
-    assert fetched_data == initial_data
-
-
 def test_lambda_handler_success(handler, s3_client):
     """Test that feedback is successfully saved."""
     question_id = "12345"
@@ -160,7 +140,7 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
         "try_get_object",
         side_effect=ClientError(error_response, "GetObject"),
     ):
-        with pytest.raises(QuestionIdError, match="questionId 99999 not found in S3."):
+        with pytest.raises(QuestionIdError, match=r"Data for key question/\d+.json not found in S3."):
             handler(event, None)
 
 
