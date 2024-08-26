@@ -3,7 +3,7 @@ import json
 import pytest
 import boto3
 from http import HTTPStatus
-from moto import mock_aws
+from moto import mock_s3
 from unittest.mock import patch
 from pydantic import ValidationError
 from lambdas.feedback_sender_POST.s3_adapter import S3Adapter
@@ -14,10 +14,12 @@ from lambdas.feedback_sender_POST.feedback_sender_POST_handler import (
 )
 from botocore.exceptions import ClientError
 
+# Test constants
 TEST_BUCKET_NAME = "test-bucket"
 TEST_PREFIX = "feedback"
 QUESTION_PREFIX = "question"
 
+# Fixtures for test environment setup
 
 @pytest.fixture
 def aws_credentials():
@@ -27,17 +29,15 @@ def aws_credentials():
     os.environ["AWS_SECURITY_TOKEN"] = "testing"
     os.environ["AWS_SESSION_TOKEN"] = "testing"
 
-
 @pytest.fixture
 def s3_client(aws_credentials):
     """Mocked S3 client using moto."""
-    with mock_aws():
+    with mock_s3():
         s3_client = boto3.client("s3", region_name="us-east-1")
         s3_client.create_bucket(Bucket=TEST_BUCKET_NAME)
         yield s3_client
         clean_bucket(s3_client)
         s3_client.delete_bucket(Bucket=TEST_BUCKET_NAME)
-
 
 def clean_bucket(s3_client):
     """Clean up all objects from the test S3 bucket."""
@@ -49,7 +49,6 @@ def clean_bucket(s3_client):
     s3_client.delete_objects(
         Bucket=TEST_BUCKET_NAME, Delete={"Objects": files_to_delete}
     )
-
 
 @pytest.fixture
 def mock_env():
@@ -65,24 +64,24 @@ def mock_env():
     ):
         yield
 
-
 @pytest.fixture
 def s3_adapter(s3_client):
     """Fixture to create an S3Adapter."""
     return S3Adapter(s3_client)
-
 
 @pytest.fixture
 def handler(mock_env, s3_adapter):
     """Fixture to build the Lambda handler."""
     return build_handler(s3_adapter)
 
+# Test cases
 
 def test_lambda_handler_success(handler, s3_client):
     """Test that feedback is successfully saved."""
     question_id = "12345"
     initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
 
+    # Simulate S3 object with the necessary data using moto
     s3_client.put_object(
         Bucket=TEST_BUCKET_NAME,
         Key=f"{QUESTION_PREFIX}/{question_id}.json",
@@ -95,7 +94,7 @@ def test_lambda_handler_success(handler, s3_client):
     ):
         event = {
             "pathParameters": {"questionId": question_id},
-            "body": json.dumps({"helpful": True}),  # Note the use of json.dumps here
+            "body": {"helpful": True},
         }
 
         response = handler(event, None)
@@ -114,22 +113,20 @@ def test_lambda_handler_success(handler, s3_client):
 
         assert saved_feedback["feedback"] == {"helpful": True}
 
-
 def test_lambda_handler_missing_question_id(handler):
     """Test that missing questionId raises an error."""
-    event = {"pathParameters": {}, "body": json.dumps({"helpful": True})}  # Use json.dumps
+    event = {"pathParameters": {}, "body": {"helpful": True}}
 
-    with pytest.raises(
-        QuestionIdError, match="questionId is missing from pathParameters."
-    ):
-        handler(event, None)
+    response = handler(event, None)
 
+    assert response["statusCode"] == HTTPStatus.NOT_FOUND.value
+    assert json.loads(response["body"])["errorMessage"] == "questionId is missing from pathParameters."
 
 def test_lambda_handler_question_id_not_found(handler, s3_adapter):
     """Test that a missing questionId in S3 raises an error."""
     event = {
         "pathParameters": {"questionId": "99999"},
-        "body": json.dumps({"helpful": True}),  # Use json.dumps
+        "body": {"helpful": True},
     }
     error_response = {
         "Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}
@@ -140,15 +137,16 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
         "try_get_object",
         side_effect=ClientError(error_response, "GetObject"),
     ):
-        with pytest.raises(QuestionIdError, match=r"Data for key question/\d+.json not found in S3."):
-            handler(event, None)
+        response = handler(event, None)
 
+        assert response["statusCode"] == HTTPStatus.NOT_FOUND.value
+        assert json.loads(response["body"])["errorMessage"] == "Data for key question/99999.json not found in S3."
 
 def test_lambda_handler_invalid_feedback(handler, s3_client):
     """Test that invalid feedback data raises a validation error."""
     question_id = "12345"
 
-    # Simulate S3 object with the necessary data using mock_aws
+    # Simulate S3 object with the necessary data using moto
     s3_client.put_object(
         Bucket=TEST_BUCKET_NAME,
         Key=f"{QUESTION_PREFIX}/{question_id}.json",
@@ -160,16 +158,13 @@ def test_lambda_handler_invalid_feedback(handler, s3_client):
     # Passing an invalid feedback event (non-boolean value)
     invalid_event = {
         "pathParameters": {"questionId": question_id},
-        "body": json.dumps({"helpful": "yes"}),  # Invalid feedback (non-boolean value)
+        "body": {"helpful": "yes"},  # Invalid feedback (non-boolean value)
     }
 
-    # Assert that ValidationError is raised
-    with pytest.raises(
-        ValidationError,
-        match=r"1 validation error for Feedback\n  Input should be a valid dictionary or instance of Feedback \[type=model_type, input_value={'helpful': 'yes'}, input_type=dict\]",
-    ):
-        handler(invalid_event, None)
+    response = handler(invalid_event, None)
 
+    assert response["statusCode"] == HTTPStatus.BAD_REQUEST.value
+    assert "errorMessage" in json.loads(response["body"])
 
 def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
     """Test that an error during S3 save raises a FeedbackError."""
@@ -197,8 +192,10 @@ def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
     ):
         event = {
             "pathParameters": {"questionId": question_id},
-            "body": json.dumps({"helpful": True}),  # Use json.dumps
+            "body": {"helpful": True},
         }
 
-        with pytest.raises(FeedbackError, match="Error saving feedback to S3"):
-            handler(event, None)
+        response = handler(event, None)
+
+        assert response["statusCode"] == HTTPStatus.BAD_REQUEST.value
+        assert json.loads(response["body"])["errorMessage"] == "Error saving feedback to S3"

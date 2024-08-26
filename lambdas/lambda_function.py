@@ -8,7 +8,7 @@ from http import HTTPStatus
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from .s3_adapter import S3Adapter, body_as_dict
-from common.decorator import load_json_body
+from common.decorator import lambda_handler  # Assuming this decorator combines error handling and JSON loading
 
 # Custom exceptions
 class FeedbackError(Exception):
@@ -66,7 +66,13 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
     feedback_prefix: Optional[str] = os.environ.get("FEEDBACK_PREFIX", "")
     question_prefix: Optional[str] = os.environ.get("QUESTION_PREFIX", "")
 
-    @load_json_body
+    @lambda_handler(
+        error_status=(
+            (QuestionIdError, HTTPStatus.NOT_FOUND.value),
+            (FeedbackError, HTTPStatus.BAD_REQUEST.value),
+        ),
+        logging_fn=logger.error,
+    )
     def handler(
         event: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
@@ -96,7 +102,10 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
             feedback = validate_feedback(feedback_data)
         except ValidationError as e:
             logger.error(f"Validation error: {e}")  # Debugging log
-            raise
+            return {
+                "statusCode": HTTPStatus.BAD_REQUEST.value,
+                "body": json.dumps({"errorMessage": str(e)}),
+            }
 
         dict_data["feedback"] = feedback.model_dump()
 
