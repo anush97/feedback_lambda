@@ -157,16 +157,16 @@ def test_lambda_handler_invalid_feedback(handler, s3_client):
         ),
     )
 
-    # Invalid feedback (non-boolean value)
+    # Passing an invalid feedback event (non-boolean value)
     invalid_event = {
         "pathParameters": {"questionId": question_id},
-        "body": {"helpful": "yes"},  # Passing directly as a dictionary, not JSON string
+        "body": {"helpful": "yes"},  # Invalid feedback (non-boolean value)
     }
 
     # Assert that ValidationError is raised
     with pytest.raises(
         ValidationError,
-        match=r"1 validation error for Feedback\n  Input should be a valid dictionary or instance of Feedback \[type=model_type, input_value={'helpful': 'yes'}, input_type=dict\]\n ",
+        match=r"1 validation error for Feedback\n  Input should be a valid dictionary or instance of Feedback \[type=model_type, input_value={'helpful': 'yes'}, input_type=dict\]",
     ):
         handler(invalid_event, None)
 
