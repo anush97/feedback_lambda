@@ -1,0 +1,3 @@
+ln -s /path/to/common/decorator.py /path/to/lambdas/feedback_sender_POST/decorator.py
+
+
