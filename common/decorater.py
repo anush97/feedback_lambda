@@ -1,13 +1,11 @@
 import json
+import logging
 from functools import wraps
 from http import HTTPStatus
-import logging
-from pydantic import ValidationError  # Import ValidationError to handle it explicitly
-
+from pydantic import ValidationError 
 # Logger setup
 log_level = os.environ.get("LOG_LEVEL", "INFO")
 logging.root.setLevel(logging.getLevelName(log_level))
-
 
 # JSON body loader decorator
 def load_json_body(fn):
@@ -20,16 +18,15 @@ def load_json_body(fn):
             except Exception as exception:
                 if hasattr(context, "serverless_sdk"):
                     context.serverless_sdk.capture_exception(exception)
-                return {"statusCode": HTTPStatus.BAD_REQUEST.value, "body": json.dumps({"error": "BAD REQUEST"})}
+                return {
+                    "statusCode": HTTPStatus.BAD_REQUEST.value,
+                    "body": json.dumps({"error": "BAD REQUEST"}),
+                }
         return fn(event, *args)
     return wrapped
 
-
-# Combined lambda_handler decorator with error handling and load_json_body
-def lambda_handler(
-    error_status=None,
-    logging_fn=None,
-):
+# Combined lambda_handler decorator with error handling and JSON loading
+def lambda_handler(error_status=None, logging_fn=None):
     if error_status is None:
         error_status = [(Exception, HTTPStatus.INTERNAL_SERVER_ERROR.value)]
 
@@ -50,16 +47,24 @@ def lambda_handler(
                     status_code, body = response
                 else:
                     status_code, body = HTTPStatus.OK.value, response
-            except ValidationError as e:  # Explicitly catch ValidationError
+            except ValidationError as e:  # Explicitly handle ValidationError
                 logging_fn(f"Validation Error: {repr(e)}", exc_info=True)
-                status_code = HTTPStatus.BAD_REQUEST.value  # Set status code to 400
+                status_code = HTTPStatus.BAD_REQUEST.value
                 body = {"errorMessage": str(e)}
             except Exception as e:
                 # Handle all other exceptions
-                error_type = next((cls for cls in type(e).__mro__ if cls in status_code_map), Exception)
-                status_code = status_code_map.get(error_type, HTTPStatus.INTERNAL_SERVER_ERROR.value)
+                error_type = next(
+                    (cls for cls in type(e).__mro__ if cls in status_code_map), Exception
+                )
+                status_code = status_code_map.get(
+                    error_type, HTTPStatus.INTERNAL_SERVER_ERROR.value
+                )
                 logging_fn(f"Error: {repr(e)}", exc_info=True)
-                body = {"errorMessage": str(e) if status_code != HTTPStatus.INTERNAL_SERVER_ERROR else "An internal error occurred."}
+                body = {
+                    "errorMessage": str(e)
+                    if status_code != HTTPStatus.INTERNAL_SERVER_ERROR
+                    else "An internal error occurred."
+                }
 
             return {
                 "statusCode": status_code,
