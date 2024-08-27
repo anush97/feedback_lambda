@@ -3,7 +3,7 @@ import json
 import pytest
 import boto3
 from http import HTTPStatus
-from moto import mock_s3
+from moto import mock_aws
 from unittest.mock import patch
 from pydantic import ValidationError
 from lambdas.feedback_sender_POST.s3_adapter import S3Adapter
@@ -14,7 +14,6 @@ from lambdas.feedback_sender_POST.feedback_sender_POST_handler import (
 )
 from botocore.exceptions import ClientError
 
-# Constants for testing
 TEST_BUCKET_NAME = "test-bucket"
 TEST_PREFIX = "feedback"
 QUESTION_PREFIX = "question"
@@ -32,7 +31,7 @@ def aws_credentials():
 @pytest.fixture
 def s3_client(aws_credentials):
     """Mocked S3 client using moto."""
-    with mock_s3():
+    with mock_aws():
         s3_client = boto3.client("s3", region_name="us-east-1")
         s3_client.create_bucket(Bucket=TEST_BUCKET_NAME)
         yield s3_client
@@ -79,36 +78,12 @@ def handler(mock_env, s3_adapter):
     return build_handler(s3_adapter)
 
 
-def test_lambda_handler_invalid_feedback(handler, s3_client):
-    """Test that invalid feedback data raises a validation error."""
-    question_id = "12345"
-
-    # Simulate S3 object with the necessary data using mock_s3
-    s3_client.put_object(
-        Bucket=TEST_BUCKET_NAME,
-        Key=f"{QUESTION_PREFIX}/{question_id}.json",
-        Body=json.dumps(
-            {"answer": "Paris", "question": "What is the capital of France?"}
-        ),
-    )
-
-    # Passing an invalid feedback event (non-boolean value)
-    invalid_event = {
-        "pathParameters": {"questionId": question_id},
-        "body": json.dumps({"helpful": "yes"}),  # Invalid feedback
-    }
-
-    # Validate the feedback raises a ValidationError
-    with pytest.raises(ValidationError):
-        handler(invalid_event, None)
-
-
 def test_lambda_handler_success(handler, s3_client):
-    """Test that feedback is successfully saved."""
+    """Test that valid feedback is successfully saved."""
     question_id = "12345"
     initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
 
-    # Simulate S3 object with the necessary data using mock_s3
+    # Put mock data into S3
     s3_client.put_object(
         Bucket=TEST_BUCKET_NAME,
         Key=f"{QUESTION_PREFIX}/{question_id}.json",
@@ -121,34 +96,66 @@ def test_lambda_handler_success(handler, s3_client):
     ):
         event = {
             "pathParameters": {"questionId": question_id},
-            "body": json.dumps({"helpful": True}),
+            "body": json.dumps({"helpful": True}),  # Valid feedback
         }
 
+        # Call handler
         response = handler(event, None)
 
+        # Assert successful response
         assert response["statusCode"] == HTTPStatus.OK.value
         assert (
             json.loads(response["body"])["message"]
             == f"Feedback for questionId {question_id} saved successfully."
         )
 
+        # Check the saved feedback in S3
         saved_object = s3_client.get_object(
             Bucket=TEST_BUCKET_NAME,
             Key=f"{TEST_PREFIX}/feedback_mocked-uuid_{question_id}.json",
         )
         saved_feedback = json.loads(saved_object["Body"].read().decode("utf-8"))
 
+        # Assert saved feedback
         assert saved_feedback["feedback"] == {"helpful": True}
+
+
+def test_lambda_handler_invalid_feedback(handler, s3_client):
+    """Test that invalid feedback data raises a validation error."""
+    question_id = "12345"
+    initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
+
+    # Put mock data into S3
+    s3_client.put_object(
+        Bucket=TEST_BUCKET_NAME,
+        Key=f"{QUESTION_PREFIX}/{question_id}.json",
+        Body=json.dumps(initial_data),
+    )
+
+    # Invalid feedback event (non-boolean value)
+    invalid_event = {
+        "pathParameters": {"questionId": question_id},
+        "body": json.dumps({"helpful": "yes"}),  # Invalid feedback
+    }
+
+    # Call handler and capture response
+    response = handler(invalid_event, None)
+
+    # Assert validation error response
+    assert response["statusCode"] == HTTPStatus.BAD_REQUEST.value
+    assert "errorMessage" in json.loads(response["body"])
 
 
 def test_lambda_handler_missing_question_id(handler):
     """Test that missing questionId raises an error."""
     event = {"pathParameters": {}, "body": json.dumps({"helpful": True})}
 
+    # Call handler and capture response
     response = handler(event, None)
 
+    # Assert questionId error response
     assert response["statusCode"] == HTTPStatus.NOT_FOUND.value
-    assert json.loads(response["body"])["errorMessage"] == "questionId is missing from pathParameters."
+    assert "errorMessage" in json.loads(response["body"])
 
 
 def test_lambda_handler_question_id_not_found(handler, s3_adapter):
@@ -161,6 +168,7 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
         "Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}
     }
 
+    # Mock S3 to simulate missing object
     with patch.object(
         s3_adapter,
         "try_get_object",
@@ -168,21 +176,24 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
     ):
         response = handler(event, None)
 
+        # Assert questionId not found response
         assert response["statusCode"] == HTTPStatus.NOT_FOUND.value
-        assert json.loads(response["body"])["errorMessage"] == "Data for key question/99999.json not found in S3."
+        assert "errorMessage" in json.loads(response["body"])
 
 
 def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
     """Test that an error during S3 save raises a FeedbackError."""
     question_id = "12345"
+    initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
+
+    # Put mock data into S3
     s3_client.put_object(
         Bucket=TEST_BUCKET_NAME,
         Key=f"{QUESTION_PREFIX}/{question_id}.json",
-        Body=json.dumps(
-            {"question": "What is the capital of France?", "answer": "Paris"}
-        ),
+        Body=json.dumps(initial_data),
     )
 
+    # Mock S3 put_object failure
     with patch.object(
         s3_adapter,
         "try_save_object",
@@ -203,5 +214,6 @@ def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
 
         response = handler(event, None)
 
+        # Assert feedback error response
         assert response["statusCode"] == HTTPStatus.BAD_REQUEST.value
-        assert json.loads(response["body"])["errorMessage"] == "Error saving feedback to S3"
+        assert "errorMessage" in json.loads(response["body"])

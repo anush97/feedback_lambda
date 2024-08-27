@@ -99,6 +99,7 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
         logger.info(f"Feedback data after loading JSON: {feedback_data}")  # Debugging log
 
         try:
+            # Validate feedback using the separate validate_feedback function
             feedback = validate_feedback(feedback_data)
         except ValidationError as e:
             logger.error(f"Validation error: {e}")  # Debugging log
@@ -107,7 +108,8 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
                 "body": json.dumps({"errorMessage": str(e)}),
             }
 
-        dict_data["feedback"] = feedback.model_dump()
+        # Add validated feedback to the existing question data
+        dict_data["feedback"] = feedback.dict()
 
         # Construct the S3 key for saving the feedback data with the UUID and questionId
         feedback_s3_key: str = (
