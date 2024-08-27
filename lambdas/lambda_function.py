@@ -77,13 +77,14 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
 
     @lambda_handler(
         error_status=(
-                (QuestionIdError, HTTPStatus.NOT_FOUND.value),
-                (FeedbackError, HTTPStatus.BAD_REQUEST.value),
+            (QuestionIdError, HTTPStatus.NOT_FOUND.value),
+            (FeedbackError, HTTPStatus.BAD_REQUEST.value),
+            (ValidationError, HTTPStatus.BAD_REQUEST.value),  # Ensure ValidationError is handled
         ),
         logging_fn=logger.error,
     )
     def handler(
-            event: Dict[str, Any], context: Optional[Dict[str, Any]]
+        event: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
         logger.info(f"Received event: {json.dumps(event)}")
 
@@ -95,7 +96,6 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
 
         # Generate unique feedback UUID
         feedback_uuid: str = generate_feedback_uuid()
-        logger.info(f"Generated feedback UUID: {feedback_uuid}")
 
         # Construct the S3 key for retrieving the existing question data
         question_s3_key: str = f"{question_prefix}/{question_id}.json"
@@ -103,26 +103,22 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
 
         # Fetch existing question data from S3
         dict_data = fetch_existing_data(s3_adapter, s3_bucket, question_s3_key)
-        logger.info(f"Fetched existing data from S3: {dict_data}")
 
         # Get and validate feedback from the event body
         feedback_data = event.get("body", {})
-        logger.info(f"Feedback data after loading JSON: {feedback_data}")  # Debugging log
+        logger.info(f"Feedback data after loading JSON: {feedback_data}")
 
         try:
             # Validate feedback using the separate validate_feedback function
             feedback = validate_feedback(feedback_data)
             logger.info(f"Feedback successfully validated: {feedback}")
         except ValidationError as e:
-            logger.error(f"Validation error: {e}")  # Debugging log
-            return {
-                "statusCode": HTTPStatus.BAD_REQUEST.value,
-                "body": json.dumps({"errorMessage": str(e)}),
-            }
+            logger.error(f"Validation error: {e}")
+            # Ensure ValidationError is returned with appropriate status
+            raise e
 
         # Add validated feedback to the existing question data
         dict_data["feedback"] = feedback.dict()
-        logger.info(f"Updated question data with validated feedback: {dict_data}")
 
         # Construct the S3 key for saving the feedback data with the UUID and questionId
         feedback_s3_key: str = (
@@ -135,7 +131,6 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
         # Save the feedback with question data back to the history bucket
         save_feedback_to_s3(s3_adapter, s3_bucket, feedback_s3_key, dict_data)
 
-        logger.info(f"Feedback and question data saved successfully with key: {feedback_s3_key}")
         return {
             "statusCode": HTTPStatus.OK.value,
             "body": json.dumps(

@@ -2,6 +2,7 @@ import json
 from functools import wraps
 from http import HTTPStatus
 import logging
+from pydantic import ValidationError  # Import ValidationError to handle it explicitly
 
 # Logger setup
 log_level = os.environ.get("LOG_LEVEL", "INFO")
@@ -43,12 +44,18 @@ def lambda_handler(
         @wraps(fn)
         def wrapped(event, *args, **kwargs):
             try:
+                # Call the handler function
                 response = fn(event, *args, **kwargs)
                 if isinstance(response, tuple) and len(response) == 2:
                     status_code, body = response
                 else:
                     status_code, body = HTTPStatus.OK.value, response
+            except ValidationError as e:  # Explicitly catch ValidationError
+                logging_fn(f"Validation Error: {repr(e)}", exc_info=True)
+                status_code = HTTPStatus.BAD_REQUEST.value  # Set status code to 400
+                body = {"errorMessage": str(e)}
             except Exception as e:
+                # Handle all other exceptions
                 error_type = next((cls for cls in type(e).__mro__ if cls in status_code_map), Exception)
                 status_code = status_code_map.get(error_type, HTTPStatus.INTERNAL_SERVER_ERROR.value)
                 logging_fn(f"Error: {repr(e)}", exc_info=True)
