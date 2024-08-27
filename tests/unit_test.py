@@ -5,7 +5,6 @@ import boto3
 from http import HTTPStatus
 from moto import mock_aws
 from unittest.mock import patch
-from pydantic import ValidationError
 from lambdas.feedback_sender_POST.s3_adapter import S3Adapter
 from lambdas.feedback_sender_POST.feedback_sender_POST_handler import (
     build_handler,
@@ -18,7 +17,6 @@ TEST_BUCKET_NAME = "test-bucket"
 TEST_PREFIX = "feedback"
 QUESTION_PREFIX = "question"
 
-
 @pytest.fixture
 def aws_credentials():
     """Mocked AWS Credentials for moto."""
@@ -26,7 +24,6 @@ def aws_credentials():
     os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
     os.environ["AWS_SECURITY_TOKEN"] = "testing"
     os.environ["AWS_SESSION_TOKEN"] = "testing"
-
 
 @pytest.fixture
 def s3_client(aws_credentials):
@@ -38,18 +35,13 @@ def s3_client(aws_credentials):
         clean_bucket(s3_client)
         s3_client.delete_bucket(Bucket=TEST_BUCKET_NAME)
 
-
 def clean_bucket(s3_client):
     """Clean up all objects from the test S3 bucket."""
     response = s3_client.list_objects_v2(Bucket=TEST_BUCKET_NAME)
     files = response.get("Contents", [])
-    if not files:
-        return
-    files_to_delete = [{"Key": file["Key"]} for file in files]
-    s3_client.delete_objects(
-        Bucket=TEST_BUCKET_NAME, Delete={"Objects": files_to_delete}
-    )
-
+    if files:
+        files_to_delete = [{"Key": file["Key"]} for file in files]
+        s3_client.delete_objects(Bucket=TEST_BUCKET_NAME, Delete={"Objects": files_to_delete})
 
 @pytest.fixture
 def mock_env():
@@ -65,18 +57,15 @@ def mock_env():
     ):
         yield
 
-
 @pytest.fixture
 def s3_adapter(s3_client):
     """Fixture to create an S3Adapter."""
     return S3Adapter(s3_client)
 
-
 @pytest.fixture
 def handler(mock_env, s3_adapter):
     """Fixture to build the Lambda handler."""
     return build_handler(s3_adapter)
-
 
 def test_lambda_handler_success(handler, s3_client):
     """Test that valid feedback is successfully saved."""
@@ -101,13 +90,10 @@ def test_lambda_handler_success(handler, s3_client):
 
         # Call handler
         response = handler(event, None)
-
-        # Assert successful response
         assert response["statusCode"] == HTTPStatus.OK.value
-        assert (
-            json.loads(response["body"])["message"]
-            == f"Feedback for questionId {question_id} saved successfully."
-        )
+
+        response_body = json.loads(response["body"])
+        assert response_body["message"] == f"Feedback for questionId {question_id} saved successfully."
 
         # Check the saved feedback in S3
         saved_object = s3_client.get_object(
@@ -118,29 +104,6 @@ def test_lambda_handler_success(handler, s3_client):
 
         # Assert saved feedback
         assert saved_feedback["feedback"] == {"helpful": True}
-
-
-def test_lambda_handler_invalid_feedback(handler, s3_client):
-    """Test that invalid feedback data raises a validation error with exact message match."""
-    question_id = "12345"
-    initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
-
-    # Put mock data into S3
-    s3_client.put_object(
-        Bucket=TEST_BUCKET_NAME,
-        Key=f"{QUESTION_PREFIX}/{question_id}.json",
-        Body=json.dumps(initial_data),
-    )
-
-    # Invalid feedback event (non-boolean value)
-    invalid_event = {
-        "pathParameters": {"questionId": question_id},
-        "body": json.dumps({"helpful": "yes"}),  # Invalid feedback
-    }
-
-    # Call handler and expect ValidationError
-    with pytest.raises(ValidationError, match=r"1 validation error for Feedback\nhelpful\n  Input should be a valid boolean \[type=bool_type, input_value='yes', input_type=str\]"):
-        handler(invalid_event, None)
 
 def test_lambda_handler_invalid_feedback(handler, s3_client):
     """Test that invalid feedback data results in a validation error response."""
@@ -163,12 +126,11 @@ def test_lambda_handler_invalid_feedback(handler, s3_client):
     # Call handler and capture response
     response = handler(invalid_event, None)
 
-    # Assert that the response indicates a validation error
+    # Assert validation error response
     assert response["statusCode"] == HTTPStatus.BAD_REQUEST.value
     response_body = json.loads(response["body"])
     assert "errorMessage" in response_body
     assert "1 validation error for Feedback" in response_body["errorMessage"]
-
 
 def test_lambda_handler_missing_question_id(handler):
     """Test that missing questionId raises an error."""
@@ -180,7 +142,6 @@ def test_lambda_handler_missing_question_id(handler):
     # Assert questionId error response
     assert response["statusCode"] == HTTPStatus.NOT_FOUND.value
     assert "errorMessage" in json.loads(response["body"])
-
 
 def test_lambda_handler_question_id_not_found(handler, s3_adapter):
     """Test that a missing questionId in S3 raises an error."""
@@ -203,7 +164,6 @@ def test_lambda_handler_question_id_not_found(handler, s3_adapter):
         # Assert questionId not found response
         assert response["statusCode"] == HTTPStatus.NOT_FOUND.value
         assert "errorMessage" in json.loads(response["body"])
-
 
 def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
     """Test that an error during S3 save raises a FeedbackError."""
