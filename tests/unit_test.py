@@ -121,7 +121,7 @@ def test_lambda_handler_success(handler, s3_client):
 
 
 def test_lambda_handler_invalid_feedback(handler, s3_client):
-    """Test that invalid feedback data raises a validation error."""
+    """Test that invalid feedback data raises a validation error with exact message match."""
     question_id = "12345"
     initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
 
@@ -138,12 +138,9 @@ def test_lambda_handler_invalid_feedback(handler, s3_client):
         "body": json.dumps({"helpful": "yes"}),  # Invalid feedback
     }
 
-    # Call handler and capture response
-    response = handler(invalid_event, None)
-
-    # Assert validation error response
-    assert response["statusCode"] == HTTPStatus.BAD_REQUEST.value
-    assert "errorMessage" in json.loads(response["body"])
+    # Call handler and expect ValidationError
+    with pytest.raises(ValidationError, match=r"1 validation error for Feedback\nhelpful\n  Input should be a valid boolean \[type=bool_type, input_value='yes', input_type=str\]"):
+        handler(invalid_event, None)
 
 
 def test_lambda_handler_missing_question_id(handler):
@@ -217,8 +214,3 @@ def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
         # Assert feedback error response
         assert response["statusCode"] == HTTPStatus.BAD_REQUEST.value
         assert "errorMessage" in json.loads(response["body"])
-response = handler(event, None)
-assert response["statusCode"] == HTTPStatus.OK.value
-response_body = json.loads(response["body"])
-assert "message" in response_body
-assert response_body["message"] == f"Feedback for questionId {question_id} saved successfully."
