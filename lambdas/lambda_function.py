@@ -122,7 +122,7 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
         # Save the feedback with question data back to the history bucket
         save_feedback_to_s3(s3_adapter, s3_bucket, feedback_s3_key, dict_data)
 
-        return {
+        response = {
             "statusCode": HTTPStatus.OK.value,
             "body": json.dumps(
                 {
@@ -130,7 +130,11 @@ def build_handler(s3_adapter: S3Adapter) -> Any:
                 }
             ),
         }
-
+        
+        # Log the success response for verification
+        logger.info(f"Returning success response: {response}")
+        
+        return response
     return handler
 
 # Initialize the handler function for AWS Lambda execution

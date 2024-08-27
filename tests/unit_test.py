@@ -217,3 +217,8 @@ def test_save_feedback_to_s3_feedback_error(handler, s3_client, s3_adapter):
         # Assert feedback error response
         assert response["statusCode"] == HTTPStatus.BAD_REQUEST.value
         assert "errorMessage" in json.loads(response["body"])
+response = handler(event, None)
+assert response["statusCode"] == HTTPStatus.OK.value
+response_body = json.loads(response["body"])
+assert "message" in response_body
+assert response_body["message"] == f"Feedback for questionId {question_id} saved successfully."
