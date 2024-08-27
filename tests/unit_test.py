@@ -142,6 +142,33 @@ def test_lambda_handler_invalid_feedback(handler, s3_client):
     with pytest.raises(ValidationError, match=r"1 validation error for Feedback\nhelpful\n  Input should be a valid boolean \[type=bool_type, input_value='yes', input_type=str\]"):
         handler(invalid_event, None)
 
+def test_lambda_handler_invalid_feedback(handler, s3_client):
+    """Test that invalid feedback data results in a validation error response."""
+    question_id = "12345"
+    initial_data = {"question": "What is the capital of France?", "answer": "Paris"}
+
+    # Put mock data into S3
+    s3_client.put_object(
+        Bucket=TEST_BUCKET_NAME,
+        Key=f"{QUESTION_PREFIX}/{question_id}.json",
+        Body=json.dumps(initial_data),
+    )
+
+    # Invalid feedback event (non-boolean value)
+    invalid_event = {
+        "pathParameters": {"questionId": question_id},
+        "body": json.dumps({"helpful": "yes"}),  # Invalid feedback
+    }
+
+    # Call handler and capture response
+    response = handler(invalid_event, None)
+
+    # Assert that the response indicates a validation error
+    assert response["statusCode"] == HTTPStatus.BAD_REQUEST.value
+    response_body = json.loads(response["body"])
+    assert "errorMessage" in response_body
+    assert "1 validation error for Feedback" in response_body["errorMessage"]
+
 
 def test_lambda_handler_missing_question_id(handler):
     """Test that missing questionId raises an error."""
