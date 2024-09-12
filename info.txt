@@ -1,0 +1,52 @@
+1. transcribe_callback_handler.py
+This script is a Lambda function handler that deals with processing results from an AWS Transcribe job and resuming an AWS Step Functions state machine. The workflow involves the following components:
+Imports and Setup:
+boto3: This is the AWS SDK used to interact with DynamoDB, S3, and Step Functions.
+Named Tuple SFNPauseState: This is a structure used to store relevant information such as the task_token, task_metadata, task_name, and output_key related to a paused Step Function.
+Functions:
+language_from_transcribe: This is a helper function that maps the language code from Transcribe (like en-US) to a custom internal code (E for English, F for French).
+retrieve_metadata_from_db_factory: This function is a factory that returns another function (retrieve_metadata). The retrieve_metadata function interacts with DynamoDB to fetch metadata for a specific Transcribe job (job_name), deletes the item from the database, and returns the SFNPauseState.
+task_callback_factory: This is another factory that creates the task_callback function. It is responsible for interacting with AWS Step Functions and sending a success or failure event to the Step Function when the Transcribe job is complete or fails.
+If the Transcribe job is successful, it updates metadata (e.g., language) and sends a task success message to the Step Function.
+If the Transcribe job fails, it sends a task failure message to the Step Function.
+Lambda Handler Workflow:
+handler function: This is the entry point for the Lambda function. It is triggered by a CloudWatch event when a Transcribe job finishes.
+The job name and status are extracted from the event.
+If the job name does not match a specific purpose, the function exits.
+Otherwise, it retrieves the paused state of the Step Function from DynamoDB and invokes the task_callback function to resume the Step Function, depending on the success or failure of the Transcribe job.
+AWS Step Functions Interaction:
+When the transcription is completed or fails, the Step Function is resumed using the task token (task_token) that was stored when the job was paused.
+The output_key refers to the S3 location where the transcript is stored, and this is passed along when resuming the Step Function.
+
+
+
+2. transcribe.py
+This script is focused on initiating a transcription job with AWS Transcribe and deciding whether to start a new job or skip it if the result already exists. Here's the workflow:
+Class TranscribeHandler:
+The __init__ method sets up the class with dependencies such as the TranscribeExecutor, S3 adapter (S3Adapter), destination bucket, purpose, and logger.
+Functionality:
+__call__ method: This is the entry point of the class and is called when the Lambda function is invoked.
+It extracts metadata (e.g., WAV file URL, language) and determines whether to skip the Transcribe job.
+S3 Object Check: If the transcription already exists (determined by checking if an object exists in S3 for the output_key), the job is skipped, and the method returns a short-circuit response.
+Transcribe Job Execution: If no existing transcription is found, it invokes the transcribe_executor to start a new Transcribe job with the specified audio file and language.
+The transcription settings are saved to the extra_metadata field, and the method returns a response with the Transcription job name, metadata, and output key.
+Helper Functions:
+s3_uri_splitter: This function splits an S3 URI to extract bucket and key information for the WAV file.
+extract_tags_from_env: This utility extracts specific tags from the environment for tagging resources.
+Transcribe Job Execution:
+The TranscribeExecutor class is responsible for submitting the audio file to AWS Transcribe for processing.
+Parameters such as the language, output_key, and other settings (like number of speakers, alternatives) are passed to this executor to start the transcription process.
+Lambda Handler Workflow:
+build_handler: This function constructs the Lambda handler, injecting dependencies such as S3 and Transcribe clients.
+It sets up the environment variables (like destination bucket, speakers, alternatives, etc.) and initializes the TranscribeExecutor and TranscribeHandler.
+lambda_handler decorator: The actual Lambda function is wrapped with this decorator to manage logging and error handling.
+Workflow Summary
+transcribe_callback_handler.py:
+This file deals with the post-processing of Transcribe jobs, especially when working with AWS Step Functions.
+When a Transcribe job completes, this function retrieves metadata from DynamoDB and either resumes a paused Step Function (if the job is successful) or sends a failure signal.
+transcribe.py:
+This script handles the initialization of Transcribe jobs.
+It checks if a transcription already exists in S3. If not, it submits the audio file to AWS Transcribe for processing and stores the results in S3.
+Key Flow:
+transcribe.py is responsible for starting the transcription job.
+Once the job finishes, transcribe_callback_handler.py processes the result, interacts with DynamoDB and Step Functions, and resumes the state machine based on success or failure.
