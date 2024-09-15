@@ -1,0 +1,4 @@
+thing to do currently -
+
+we are not providing user credentials in elastic search so do that if not provided then use defaut and check if 403 or any error comes earlier
+so pehle check abhi kis stage pe aari and then chekc ki changes ke baad kis stage pe aari
