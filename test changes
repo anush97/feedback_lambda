@@ -1,4 +1,58 @@
 test changes -
+
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+)
+def test_handler_invalid_call_id(
+    mock_get_user_groups,
+    event_with_user,
+    es_create_query,
+    create_dynamodb_client_function,
+    create_es_client_function,
+    create_sqs_client_function,
+):
+    request_mock = MagicMock(
+        return_value={
+            "hits": {
+                "total": {"value": 1, "relation": "eq"},
+                "hits": [
+                    {
+                        "_index": "call-details-000001",
+                        "_type": "_doc",
+                        "_id": "7654321",
+                        "_score": 4.227655,
+                        "_source": {},
+                    }
+                ],
+            },
+        }
+    )
+
+    mock_get_user_groups.return_value = [
+        PermissionGroup(
+            id=GROUP_1_NAME,
+            name=GROUP_1_NAME,
+            description="Test group description",
+            distributors=["BEL", "BNA"],
+            linesOfBusiness=["RE", "AUP"],
+        )
+    ]
+    create_es_client_function.return_value.search_documents = request_mock
+    handler = build_handler(
+        create_dynamodb_client_fn=create_dynamodb_client_function,
+        create_es_client_fn=create_es_client_function,
+        create_sqs_client_fn=create_sqs_client_function,
+    )
+    response = handler(event_with_user, {})
+
+    assert_status_code(response, 400)
+    # Update the expected error message to match the new format
+    expected_error_message = "Unexpected error during call ID validation: Elasticsearch query failed with error: Invalid call_ids: ['1234567']"
+    assert_error_message(response, expected_error_message)
+
+
+
+----------------------------
 import json
 import os
 from unittest import mock
