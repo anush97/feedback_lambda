@@ -336,3 +336,97 @@ def test_handler_invalid_call_id(
 
     assert_status_code(response, 400)
     assert_error_message(response, "Invalid call_ids: ['1234567']")
+
+
+error -
+
+/home/anushka-sharma/build/callme-backend-api/mainenv/bin/python /snap/pycharm-professional/412/plugins/python-ce/helpers/pycharm/_jb_pytest_runner.py --path /home/anushka-sharma/build/callme-backend-api/tests/unit/transcribe_on_request_POST/test_transcribe_on_request_POST.py 
+Testing started at 9:32 AM ...
+Launching pytest with arguments /home/anushka-sharma/build/callme-backend-api/tests/unit/transcribe_on_request_POST/test_transcribe_on_request_POST.py --no-header --no-summary -q in /home/anushka-sharma/build/callme-backend-api/tests/unit/transcribe_on_request_POST
+
+============================= test session starts ==============================
+collecting ... collected 10 items
+
+test_transcribe_on_request_POST.py::test_build_handler 
+test_transcribe_on_request_POST.py::test_missing_env_variable[ELASTICSEARCH_HOST] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[ELASTICSEARCH_INDEX] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[TRANSCRIBE_ON_REQUEST_STATUS_TABLE] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[DAYS_TO_EXPIRE] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[AUDIO_SOURCE_BUCKET] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[AUDIO_SOURCE_PREFIX] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[SQS_QUEUE_URL] 
+test_transcribe_on_request_POST.py::test_handler_valid_call_id 
+test_transcribe_on_request_POST.py::test_handler_invalid_call_id 
+
+========================= 1 failed, 9 passed in 1.50s ==========================
+PASSED            [ 10%]PASSED [ 20%]PASSED [ 30%]PASSED [ 40%]PASSED [ 50%]PASSED [ 60%]PASSED [ 70%]PASSED [ 80%]PASSED    [ 90%]FAILED  [100%]
+tests/unit/transcribe_on_request_POST/test_transcribe_on_request_POST.py:290 (test_handler_invalid_call_id)
+mock_get_user_groups = <MagicMock name='get_user_groups' id='134945181363520'>
+event_with_user = {'body': ['7654321', '1234567'], 'headers': {'Accept-Encoding': 'identity', 'cookie': {'CQ:access_token': 'test_access...t_key': 'mock_id_secret_key', 'id_session_token': 'mock_id_session_token', 'identity_id': 'ca-central-1:abc123', ...}}}
+es_create_query = {'bool': {'must': [{'range': {'created_at_': {'gte': 'now-1y'}}}, {'terms': {'_id': ['7654321', '1234567']}}, {'match': {'transcribed': False}}, {'bool': {'should': [{...}]}}]}}
+create_dynamodb_client_function = <MagicMock id='134945179389952'>
+create_es_client_function = <MagicMock id='134945179107872'>
+create_sqs_client_function = <MagicMock id='134945174160192'>
+
+    @mock.patch(
+        "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+    )
+    def test_handler_invalid_call_id(
+        mock_get_user_groups,
+        event_with_user,
+        es_create_query,
+        create_dynamodb_client_function,
+        create_es_client_function,
+        create_sqs_client_function,
+    ):
+        request_mock = MagicMock(
+            return_value={
+                "hits": {
+                    "total": {"value": 1, "relation": "eq"},
+                    "hits": [
+                        {
+                            "_index": "call-details-000001",
+                            "_type": "_doc",
+                            "_id": "7654321",
+                            "_score": 4.227655,
+                            "_source": {},
+                        }
+                    ],
+                },
+            }
+        )
+    
+        mock_get_user_groups.return_value = [
+            PermissionGroup(
+                id=GROUP_1_NAME,
+                name=GROUP_1_NAME,
+                description="Test group description",
+                distributors=["BEL", "BNA"],
+                linesOfBusiness=["RE", "AUP"],
+            )
+        ]
+        create_es_client_function.return_value.search_documents = request_mock
+        handler = build_handler(
+            create_dynamodb_client_fn=create_dynamodb_client_function,
+            create_es_client_fn=create_es_client_function,
+            create_sqs_client_fn=create_sqs_client_function,
+        )
+        response = handler(event_with_user, {})
+    
+        assert_status_code(response, 400)
+>       assert_error_message(response, "Invalid call_ids: ['1234567']")
+
+test_transcribe_on_request_POST.py:337: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+response = {'body': '{"errorMessage": "Unexpected error during call ID validation: Elasticsearch query failed with error: Invalid...rity-Policy': "frame-ancestors 'none';", 'Referrer-Policy': 'strict-origin-when-cross-origin', ...}, 'statusCode': 400}
+message = "Invalid call_ids: ['1234567']"
+
+    def assert_error_message(response, message):
+        payload = json.loads(response["body"])
+>       assert payload["errorMessage"] == message
+E       AssertionError
+
+../lambda_assertions.py:30: AssertionError
+
+Process finished with exit code 1
