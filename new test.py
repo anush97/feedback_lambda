@@ -5,10 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from common.errors import (
-    ConfigurationError,
-    AccessDeniedError,
-)  # Import AccessDeniedError
+from common.errors import ConfigurationError, AccessDeniedError, ValidationError
 from common.models.admin import PermissionGroup
 from functions.transcribe_on_request_POST.transcribe_on_request_POST_handler import (
     build_handler,
@@ -53,6 +50,40 @@ def event_with_user():
         },
         "body": ["7654321", "1234567"],
         "requestContext": {"authorizer": AUTHORIZER},
+    }
+
+
+@pytest.fixture
+def es_create_query() -> dict:
+    return {
+        "bool": {
+            "must": [
+                {"range": {"created_at_": {"gte": "now-1y"}}},
+                {"terms": {"_id": ["7654321", "1234567"]}},
+                {"match": {"transcribed": False}},
+                {
+                    "bool": {
+                        "should": [
+                            {
+                                "bool": {
+                                    "must": [
+                                        {
+                                            "terms": {
+                                                "distributor_number": [
+                                                    "BEL",
+                                                    "BNA",
+                                                ]
+                                            }
+                                        },
+                                        {"terms": {"line_of_business": ["RE", "AUP"]}},
+                                    ]
+                                }
+                            },
+                        ]
+                    }
+                },
+            ]
+        }
     }
 
 
@@ -148,6 +179,7 @@ def test_handler_valid_call_id(
     mock_extract_credentials,
     mock_get_user_groups,
     event_with_user,
+    es_create_query,
     create_dynamodb_client_function,
     create_es_client_function,
     dynamodb,
@@ -285,6 +317,7 @@ def test_handler_invalid_call_id(
     mock_extract_credentials,
     mock_get_user_groups,
     event_with_user,
+    es_create_query,
     create_dynamodb_client_function,
     create_es_client_function,
     create_sqs_client_function,
@@ -339,4 +372,4 @@ def test_handler_invalid_call_id(
     assert_status_code(response, 400)
 
     # Assert the specific error message related to invalid call_ids
-    assert "Invalid call_ids: ['1234567']" in response["body"]
+    assert_error_message(response, "Invalid call_ids: ['1234567']")
