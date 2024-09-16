@@ -1,5 +1,5 @@
 /home/anushka-sharma/build/callme-backend-api/.venv/bin/python /snap/pycharm-professional/412/plugins/python-ce/helpers/coverage_runner/run_coverage.py run --omit="/snap/pycharm-professional/412/plugins/python-ce/helpers*" /snap/pycharm-professional/412/plugins/python-ce/helpers/pycharm/_jb_pytest_runner.py --path /home/anushka-sharma/build/callme-backend-api/tests/unit/transcribe_on_request_POST/test_transcribe_on_request_POST.py 
-Testing started at 3:06 PM ...
+Testing started at 3:18 PM ...
 Launching pytest with arguments /home/anushka-sharma/build/callme-backend-api/tests/unit/transcribe_on_request_POST/test_transcribe_on_request_POST.py --no-header --no-summary -q in /home/anushka-sharma/build/callme-backend-api/tests/unit/transcribe_on_request_POST
 
 ============================= test session starts ==============================
@@ -17,38 +17,196 @@ test_transcribe_on_request_POST.py::test_handler_valid_call_id
 test_transcribe_on_request_POST.py::test_handler_user_without_rights 
 test_transcribe_on_request_POST.py::test_handler_invalid_call_id 
 
-========================= 1 failed, 10 passed in 2.41s =========================
+========================= 1 failed, 10 passed in 1.81s =========================
 PASSED            [  9%]PASSED [ 18%]PASSED [ 27%]PASSED [ 36%]PASSED [ 45%]PASSED [ 54%]PASSED [ 63%]PASSED [ 72%]PASSED    [ 81%]FAILED [ 90%]
-tests/unit/transcribe_on_request_POST/test_transcribe_on_request_POST.py:267 (test_handler_user_without_rights)
-headers = {}
+tests/unit/transcribe_on_request_POST/test_transcribe_on_request_POST.py:266 (test_handler_user_without_rights)
+jwt = b'eyJraWQiOiI2b0xxQnZWZWlJY1FsYmhoMmpBa2NONE5Dd0NxcHlOVVd3Ym9uWVpnUE9VPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiS0dVU05t...Qf0khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL-iUNYSKvZbMLqdPC1byYBd4C3e9m_c0QA_8-EyBcEZm4x2Mf0eCw'
 
-    def extract_tokens_from_cookies(headers):
+    def _load(jwt):
+        if isinstance(jwt, str):
+            jwt = jwt.encode("utf-8")
         try:
-            cookie = SimpleCookie()
-            if "cookie" in headers:
-                cookie.load(headers["cookie"])
->           return str(cookie[ACCESS_TOKEN_KEY_NAME].value), str(
-                cookie[IDENTITY_TOKEN_KEY_NAME].value
-            )
-E           KeyError: 'CQ:access_token'
+            signing_input, crypto_segment = jwt.rsplit(b".", 1)
+            header_segment, claims_segment = signing_input.split(b".", 1)
+            header_data = base64url_decode(header_segment)
+        except ValueError:
+            raise JWSError("Not enough segments")
+        except (TypeError, binascii.Error):
+            raise JWSError("Invalid header padding")
+    
+        try:
+            header = json.loads(header_data.decode("utf-8"))
+        except ValueError as e:
+            raise JWSError("Invalid header string: %s" % e)
+    
+        if not isinstance(header, Mapping):
+            raise JWSError("Invalid header string: must be a json object")
+    
+        try:
+            payload = base64url_decode(claims_segment)
+        except (TypeError, binascii.Error):
+            raise JWSError("Invalid payload padding")
+    
+        try:
+>           signature = base64url_decode(crypto_segment)
 
-../../../common/credentials_verifier.py:31: KeyError
+../../../.venv/lib/python3.10/site-packages/jose/jws.py:198: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-The above exception was the direct cause of the following exception:
+input = b'P0614vsawvrNeAeS0CBObNbNbOTjfN7hgfXX7xMA-QsrZUMKEtXHpwqaHSN1ldFxq5aLMMOXahy5VgeSPDRkX3eppixlpGcoFuYz_nmK_XMZ3DWpo78N...khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL-iUNYSKvZbMLqdPC1byYBd4C3e9m_c0QA_8-EyBcEZm4x2Mf0eCw==='
 
-mock_extract_credentials = <MagicMock name='extract_credentials' id='140094628822800'>
-mock_get_user_groups = <MagicMock name='get_user_groups' id='140094610598800'>
-event_with_user = <MagicMock name='extract_credentials' id='140094611704896'>
-create_dynamodb_client_function = <MagicMock name='get_user_groups' id='140094611714976'>
-create_es_client_function = <MagicMock id='140094643032256'>
-create_sqs_client_function = <MagicMock id='140094642995744'>
+    def base64url_decode(input):
+        """Helper method to base64url_decode a string.
+    
+        Args:
+            input (str): A base64url_encoded string to decode.
+    
+        """
+        rem = len(input) % 4
+    
+        if rem > 0:
+            input += b"=" * (4 - rem)
+    
+>       return base64.urlsafe_b64decode(input)
 
-    @mock.patch(
-        "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
-    )
-    @mock.patch(
-        "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
-    )
+../../../.venv/lib/python3.10/site-packages/jose/utils.py:78: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+s = b'P0614vsawvrNeAeS0CBObNbNbOTjfN7hgfXX7xMA+QsrZUMKEtXHpwqaHSN1ldFxq5aLMMOXahy5VgeSPDRkX3eppixlpGcoFuYz/nmK/XMZ3DWpo78N...khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL+iUNYSKvZbMLqdPC1byYBd4C3e9m/c0QA/8+EyBcEZm4x2Mf0eCw==='
+
+    def urlsafe_b64decode(s):
+        """Decode bytes using the URL- and filesystem-safe Base64 alphabet.
+    
+        Argument s is a bytes-like object or ASCII string to decode.  The result
+        is returned as a bytes object.  A binascii.Error is raised if the input
+        is incorrectly padded.  Characters that are not in the URL-safe base-64
+        alphabet, and are not a plus '+' or slash '/', are discarded prior to the
+        padding check.
+    
+        The alphabet uses '-' instead of '+' and '_' instead of '/'.
+        """
+        s = _bytes_from_decode_data(s)
+        s = s.translate(_urlsafe_decode_translation)
+>       return b64decode(s)
+
+/usr/lib/python3.10/base64.py:133: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+s = b'P0614vsawvrNeAeS0CBObNbNbOTjfN7hgfXX7xMA+QsrZUMKEtXHpwqaHSN1ldFxq5aLMMOXahy5VgeSPDRkX3eppixlpGcoFuYz/nmK/XMZ3DWpo78N...khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL+iUNYSKvZbMLqdPC1byYBd4C3e9m/c0QA/8+EyBcEZm4x2Mf0eCw==='
+altchars = None, validate = False
+
+    def b64decode(s, altchars=None, validate=False):
+        """Decode the Base64 encoded bytes-like object or ASCII string s.
+    
+        Optional altchars must be a bytes-like object or ASCII string of length 2
+        which specifies the alternative alphabet used instead of the '+' and '/'
+        characters.
+    
+        The result is returned as a bytes object.  A binascii.Error is raised if
+        s is incorrectly padded.
+    
+        If validate is False (the default), characters that are neither in the
+        normal base-64 alphabet nor the alternative alphabet are discarded prior
+        to the padding check.  If validate is True, these non-alphabet characters
+        in the input result in a binascii.Error.
+        """
+        s = _bytes_from_decode_data(s)
+        if altchars is not None:
+            altchars = _bytes_from_decode_data(altchars)
+            assert len(altchars) == 2, repr(altchars)
+            s = s.translate(bytes.maketrans(altchars, b'+/'))
+        if validate and not re.fullmatch(b'[A-Za-z0-9+/]*={0,2}', s):
+            raise binascii.Error('Non-base64 digit found')
+>       return binascii.a2b_base64(s)
+E       binascii.Error: Invalid base64-encoded string: number of data characters (341) cannot be 1 more than a multiple of 4
+
+/usr/lib/python3.10/base64.py:87: Error
+
+During handling of the above exception, another exception occurred:
+
+token = 'eyJraWQiOiI2b0xxQnZWZWlJY1FsYmhoMmpBa2NONE5Dd0NxcHlOVVd3Ym9uWVpnUE9VPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiS0dVU05tQ...Qf0khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL-iUNYSKvZbMLqdPC1byYBd4C3e9m_c0QA_8-EyBcEZm4x2Mf0eCw'
+
+    def get_unverified_claims(token):
+        """Returns the decoded claims without verification of any kind.
+    
+        Args:
+            token (str): A signed JWT to decode the headers from.
+    
+        Returns:
+            dict: The dict representation of the token claims.
+    
+        Raises:
+            JWTError: If there is an exception decoding the token.
+        """
+        try:
+>           claims = jws.get_unverified_claims(token)
+
+../../../.venv/lib/python3.10/site-packages/jose/jwt.py:221: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+token = 'eyJraWQiOiI2b0xxQnZWZWlJY1FsYmhoMmpBa2NONE5Dd0NxcHlOVVd3Ym9uWVpnUE9VPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiS0dVU05tQ...Qf0khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL-iUNYSKvZbMLqdPC1byYBd4C3e9m_c0QA_8-EyBcEZm4x2Mf0eCw'
+
+    def get_unverified_claims(token):
+        """Returns the decoded claims without verification of any kind.
+    
+        Args:
+            token (str): A signed JWS to decode the headers from.
+    
+        Returns:
+            str: The str representation of the token claims.
+    
+        Raises:
+            JWSError: If there is an exception decoding the token.
+        """
+>       header, claims, signing_input, signature = _load(token)
+
+../../../.venv/lib/python3.10/site-packages/jose/jws.py:124: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+jwt = b'eyJraWQiOiI2b0xxQnZWZWlJY1FsYmhoMmpBa2NONE5Dd0NxcHlOVVd3Ym9uWVpnUE9VPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiS0dVU05t...Qf0khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL-iUNYSKvZbMLqdPC1byYBd4C3e9m_c0QA_8-EyBcEZm4x2Mf0eCw'
+
+    def _load(jwt):
+        if isinstance(jwt, str):
+            jwt = jwt.encode("utf-8")
+        try:
+            signing_input, crypto_segment = jwt.rsplit(b".", 1)
+            header_segment, claims_segment = signing_input.split(b".", 1)
+            header_data = base64url_decode(header_segment)
+        except ValueError:
+            raise JWSError("Not enough segments")
+        except (TypeError, binascii.Error):
+            raise JWSError("Invalid header padding")
+    
+        try:
+            header = json.loads(header_data.decode("utf-8"))
+        except ValueError as e:
+            raise JWSError("Invalid header string: %s" % e)
+    
+        if not isinstance(header, Mapping):
+            raise JWSError("Invalid header string: must be a json object")
+    
+        try:
+            payload = base64url_decode(claims_segment)
+        except (TypeError, binascii.Error):
+            raise JWSError("Invalid payload padding")
+    
+        try:
+            signature = base64url_decode(crypto_segment)
+        except (TypeError, binascii.Error):
+>           raise JWSError("Invalid crypto padding")
+E           jose.exceptions.JWSError: Invalid crypto padding
+
+../../../.venv/lib/python3.10/site-packages/jose/jws.py:200: JWSError
+
+During handling of the above exception, another exception occurred:
+
+mock_extract_credentials = <MagicMock name='extract_credentials' id='125080365914704'>
+mock_get_user_groups = <MagicMock name='get_user_groups' id='125080348119664'>
+event_with_user = {'body': ['7654321', '1234567'], 'headers': {'Accept-Encoding': 'identity', 'cookie': 'CQ:access_token=test_access_tok...t_key': 'mock_id_secret_key', 'id_session_token': 'mock_id_session_token', 'identity_id': 'ca-central-1:abc123', ...}}}
+create_dynamodb_client_function = <MagicMock id='125080368740000'>
+create_es_client_function = <MagicMock id='125080368734432'>
+create_sqs_client_function = <MagicMock id='125080368812608'>
+
     @mock.patch(
         "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
     )
@@ -63,6 +221,9 @@ create_sqs_client_function = <MagicMock id='140094642995744'>
         create_es_client_function,
         create_sqs_client_function,
     ):
+        # Modify the event_with_user fixture to combine cookies into a single string
+        event_with_user["headers"]["cookie"] = "CQ:access_token=test_access_token; CQ:identity=eyJraWQiOiI2b0xxQnZWZWlJY1FsYmhoMmpBa2NONE5Dd0NxcHlOVVd3Ym9uWVpnUE9VPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiS0dVU05tQklLV0dKeWs0WGd0RGxDZyIsInN1YiI6ImZjMmZhZGIzLTI5ZmEtNDk1Yy04YzA4LTE5YmEwZDc2NzQxNyIsImNvZ25pdG86Z3JvdXBzIjpbImNhLWNlbnRyYWwtMV9paHJ6UThqRTVfSUZDQXp1cmVJZCJdLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImlzcyI6Imh0dHBzOi8vY29nbml0by1pZHAuY2EtY2VudHJhbC0xLmFtYXpvbmF3cy5jb20vY2EtY2VudHJhbC0xX2locnpROGpFNSIsImNvZ25pdG86dXNlcm5hbWUiOiJJRkNBenVyZUlkX3Rlc3QudXNlckBpbnRhY3QubmV0IiwiZ2l2ZW5fbmFtZSI6IlRlc3QiLCJhdWQiOiIyb29hYWE4Y3BybGUyMGo5YThqbzgydnV1byIsImlkZW50aXRpZXMiOlt7InVzZXJJZCI6InRlc3QudXNlckBpbnRhY3QubmV0IiwicHJvdmlkZXJOYW1lIjoiSUZDQXp1cmVJZCIsInByb3ZpZGVyVHlwZSI6IlNBTUwiLCJpc3N1ZXIiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC9iODgwZWVjYS1mMWZiLTRjOTEtYmZmNi04MmU4NDM1MGE2ZTYvIiwicHJpbWFyeSI6InRydWUiLCJkYXRlQ3JlYXRlZCI6IjE2MDY0MjMxNTE2MTIifV0sInRva2VuX3VzZSI6ImlkIiwiYXV0aF90aW1lIjoxNjE0MDk3MDYzLCJleHAiOjI2MTQxMTM2MjEsImlhdCI6MTYxNDExMDAyMSwiZmFtaWx5X25hbWUiOiJVc2VyIiwiZW1haWwiOiJ0ZXN0LnVzZXJAaW50YWN0Lm5ldCJ9.P0614vsawvrNeAeS0CBObNbNbOTjfN7hgfXX7xMA-QsrZUMKEtXHpwqaHSN1ldFxq5aLMMOXahy5VgeSPDRkX3eppixlpGcoFuYz_nmK_XMZ3DWpo78N73ykgBf6HOSjpFjClczT9g3maur3YBtru9lngYwTMFtBHXlj_T0qBV_ngxJGWiqj2WPvba3p4r1Bs14hb-uNkSBQqLChihkW-iR3og9uhpRQf0khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL-iUNYSKvZbMLqdPC1byYBd4C3e9m_c0QA_8-EyBcEZm4x2Mf0eCw"
+    
         # Mock user credentials
         mock_extract_credentials.return_value = {
             "access_key": "mock_access_key",
@@ -89,27 +250,33 @@ create_sqs_client_function = <MagicMock id='140094642995744'>
         with pytest.raises(AccessDeniedError) as excinfo:
 >           handler(event_with_user, {})
 
-test_transcribe_on_request_POST.py:312: 
+test_transcribe_on_request_POST.py:308: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-../../../common/decorator.py:270: in wrapped
-    access_token, identity_token = extract_tokens_from_cookies(event_headers)
+../../../common/decorator.py:272: in wrapped
+    claims = jwt.get_unverified_claims(identity_token)
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-headers = {}
+token = 'eyJraWQiOiI2b0xxQnZWZWlJY1FsYmhoMmpBa2NONE5Dd0NxcHlOVVd3Ym9uWVpnUE9VPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiS0dVU05tQ...Qf0khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL-iUNYSKvZbMLqdPC1byYBd4C3e9m_c0QA_8-EyBcEZm4x2Mf0eCw'
 
-    def extract_tokens_from_cookies(headers):
+    def get_unverified_claims(token):
+        """Returns the decoded claims without verification of any kind.
+    
+        Args:
+            token (str): A signed JWT to decode the headers from.
+    
+        Returns:
+            dict: The dict representation of the token claims.
+    
+        Raises:
+            JWTError: If there is an exception decoding the token.
+        """
         try:
-            cookie = SimpleCookie()
-            if "cookie" in headers:
-                cookie.load(headers["cookie"])
-            return str(cookie[ACCESS_TOKEN_KEY_NAME].value), str(
-                cookie[IDENTITY_TOKEN_KEY_NAME].value
-            )
-        except KeyError as e:
->           raise HeaderError("Missing tokens in cookies or they are expired") from e
-E           common.errors.HeaderError: Missing tokens in cookies or they are expired
+            claims = jws.get_unverified_claims(token)
+        except Exception:
+>           raise JWTError("Error decoding token claims.")
+E           jose.exceptions.JWTError: Error decoding token claims.
 
-../../../common/credentials_verifier.py:35: HeaderError
+../../../.venv/lib/python3.10/site-packages/jose/jwt.py:223: JWTError
 PASSED  [100%]Wrote XML report to /home/anushka-sharma/.cache/JetBrains/PyCharm2024.2/coverage/callme_backend_api$pytest_in_transcribe_on_request_POST_handler.xml
 
 Process finished with exit code 0
