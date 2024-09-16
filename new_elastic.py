@@ -44,47 +44,6 @@ def offset_paginator_factory(limit=10, strategy="offset"):
         return append_pagination_with_from_size
 
 
-class ElasticSearch:
-    def __init__(
-        self, host, index, requests, auth, results_map, protocol="https", logger=None
-    ):
-        warnings.warn("Deprecated Class, use ElasticSearchV2", DeprecationWarning)
-        self.host = host
-        self.index = index  # Use alias as index
-        self.requests = requests
-        self.auth = auth
-        if logger is None:
-            logger = NullObject()
-        self.logger = logger
-        self.url = f"{protocol}://{self.host}/{self.index}"
-        self.results_map = results_map
-        self.response = None
-        self.results = []
-        self.total = 0
-        self.headers = ES_HEADERS
-
-    def query(self, query):
-        self.logger.info(f"Query: {json.dumps(query, indent=2)}")
-        # Make the signed HTTP request
-        es_response = self.requests.get(
-            f"{self.url}/_search",
-            auth=self.auth,
-            headers=self.headers,
-            data=json.dumps(query),
-        )
-        self.response = json.loads(es_response.text)
-        to_log = copy.deepcopy(self.response)
-
-        if "hits" in self.response and "hits" in self.response["hits"]:
-            to_log["hits"]["hits"] = "omitted"
-            hits = map(self.results_map, self.response["hits"]["hits"])
-            hits = filter(lambda x: isinstance(x, dict), hits)
-            self.results = list(hits)
-            self.total = self.response["hits"]["total"]["value"]
-
-        self.logger.info(f"ElasticSearch results: {to_log}")
-
-
 class ElasticsearchFailedRequestError(Exception):
     pass
 
@@ -147,6 +106,66 @@ class ElasticSearchV2:
             )
 
         return response
+
+    def request(self, verb: str, endpoint: str, body: Dict = None) -> Dict:
+        """Generic request method for Elasticsearch."""
+        response = self.__request(verb, endpoint, body)
+        return json.loads(response.text)
+
+    def get_document(self, index: str, _id: str) -> Dict:
+        """Retrieve a document from Elasticsearch."""
+        endpoint = f"{index}/_doc/{_id}"
+        response = self.__request(verb="GET", endpoint=endpoint)
+        return json.loads(response.text)
+
+    def search_documents(self, index: str, query: Dict) -> Dict:
+        """Search for documents in Elasticsearch."""
+        endpoint = f"{index}/_search"
+        response = self.__request(verb="GET", endpoint=endpoint, body=query)
+        return json.loads(response.text)
+
+    def add_document(self, index: str, _id: str, document: Dict) -> Dict:
+        """Create a full document."""
+        endpoint = f"{index}/_doc/{_id}"
+        response = self.__request(
+            verb="PUT",
+            endpoint=endpoint,
+            body=document,
+        )
+        return json.loads(response.text)
+
+    def update_document(
+        self, index: str, _id: str, document: Dict, max_retries: int = 3
+    ) -> Dict:
+        """Overwrite or Create a full document."""
+        endpoint = f"{index}/_update/{_id}?retry_on_conflict={max_retries}"
+        response = self.__request(verb="POST", endpoint=endpoint, body=document)
+        return json.loads(response.text)
+
+    def update_partial_document(
+        self, index: str, _id: str, partial_document: Dict, max_retries: int = 3
+    ) -> Dict:
+        """Update a partial section of a document."""
+        endpoint = f"{index}/_update/{_id}?retry_on_conflict={max_retries}"
+        updated_document = {"doc": partial_document}
+        response = self.__request(verb="POST", endpoint=endpoint, body=updated_document)
+        return json.loads(response.text)
+
+    def update_partial_document_by_query(
+        self, index: str, _id: str, update_query: Dict, max_retries: int = 3
+    ) -> Dict:
+        """Update a partial section of a document using a script."""
+        endpoint = f"{index}/_update/{_id}?retry_on_conflict={max_retries}"
+        response = self.__request(verb="POST", endpoint=endpoint, body=update_query)
+        return json.loads(response.text)
+
+    def update_documents_by_query(
+        self, index: str, update_query: Dict, max_retries: int = 3
+    ) -> Dict:
+        """Update multiple documents by an update query."""
+        endpoint = f"{index}/_update_by_query/?retry_on_conflict={max_retries}"
+        response = self.__request(verb="POST", endpoint=endpoint, body=update_query)
+        return json.loads(response.text)
 
     def validate_user_access(self, user_groups: list) -> bool:
         """Validate if the user has access to transcribe calls."""
