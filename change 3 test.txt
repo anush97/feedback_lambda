@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from common.errors import ConfigurationError, AccessDeniedError
+from common.errors import ConfigurationError, AccessDeniedError  # Import AccessDeniedError
 from common.models.admin import PermissionGroup
 from functions.transcribe_on_request_POST.transcribe_on_request_POST_handler import (
     build_handler,
@@ -37,7 +37,6 @@ AUTHORIZER = {
     "username": "IFCAzureId_test.user@intact.net",
 }
 
-
 @pytest.fixture
 def event_with_user():
     return {
@@ -52,7 +51,6 @@ def event_with_user():
         "requestContext": {"authorizer": AUTHORIZER},
     }
 
-
 @pytest.fixture(scope="function", autouse=True)
 def set_env_variables():
     os.environ["ELASTICSEARCH_INDEX"] = ELASTICSEARCH_INDEX
@@ -64,7 +62,6 @@ def set_env_variables():
     os.environ["AUDIO_SOURCE_BUCKET"] = AUDIO_SOURCE_BUCKET
     os.environ["AUDIO_SOURCE_PREFIX"] = AUDIO_SOURCE_PREFIX
     os.environ["SQS_QUEUE_URL"] = SQS_QUEUE_URL
-
 
 @pytest.fixture(autouse=True, scope="function")
 def setup_resources(dynamodb, sqs):
@@ -93,50 +90,54 @@ def setup_resources(dynamodb, sqs):
 
     sqs.create_queue(QueueName=SQS_QUEUE_URL)
 
-
-@mock.patch("functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials")
-@mock.patch("functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups")
-def test_handler_user_without_rights(
-    mock_get_user_groups,
-    mock_extract_credentials,
-    event_with_user,
+def test_build_handler(
     create_dynamodb_client_function,
     create_es_client_function,
     create_sqs_client_function,
 ):
-    # Mock to simulate the user does not belong to any valid group with access rights
-    mock_get_user_groups.return_value = ["NoAccessGroup"]
-
-    # Mock the extraction of user credentials
-    mock_extract_credentials.return_value = {
-        "access_key": "mock_access_key",
-        "secret_key": "mock_secret_key",
-        "token": "mock_session_token",
-    }
-
-    # Mock the Elasticsearch client's `validate_user_access` to return False
-    create_es_client_function.return_value.validate_user_access = MagicMock(return_value=False)
-
-    # Build the handler
-    handler = build_handler(
+    result = build_handler(
         create_dynamodb_client_fn=create_dynamodb_client_function,
         create_es_client_fn=create_es_client_function,
         create_sqs_client_fn=create_sqs_client_function,
     )
+    assert result
 
-    # Invoke the handler and assert AccessDeniedError is raised
-    with pytest.raises(AccessDeniedError) as excinfo:
-        handler(event_with_user, {})
+@pytest.mark.parametrize(
+    "env_variable",
+    [
+        "ELASTICSEARCH_HOST",
+        "ELASTICSEARCH_INDEX",
+        "TRANSCRIBE_ON_REQUEST_STATUS_TABLE",
+        "DAYS_TO_EXPIRE",
+        "AUDIO_SOURCE_BUCKET",
+        "AUDIO_SOURCE_PREFIX",
+        "SQS_QUEUE_URL",
+    ],
+)
+def test_missing_env_variable(
+    env_variable,
+    create_dynamodb_client_function,
+    create_es_client_function,
+    create_sqs_client_function,
+):
+    del os.environ[env_variable]
 
-    # Assert the error message
-    assert "User group does not have access to transcribe calls." in str(excinfo.value)
+    with pytest.raises(ConfigurationError):
+        build_handler(
+            create_dynamodb_client_fn=create_dynamodb_client_function,
+            create_es_client_fn=create_es_client_function,
+            create_sqs_client_fn=create_sqs_client_function,
+        )
 
-
-@mock.patch("functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials")
-@mock.patch("functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups")
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+)
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
+)
 def test_handler_valid_call_id(
-    mock_get_user_groups,
     mock_extract_credentials,
+    mock_get_user_groups,
     event_with_user,
     create_dynamodb_client_function,
     create_es_client_function,
@@ -144,22 +145,11 @@ def test_handler_valid_call_id(
     create_sqs_client_function,
     sqs,
 ):
-    # Mock user groups
-    mock_get_user_groups.return_value = [
-        PermissionGroup(
-            id=GROUP_1_NAME,
-            name=GROUP_1_NAME,
-            description="Test group description",
-            distributors=["BEL", "BNA"],
-            linesOfBusiness=["RE", "AUP"],
-        )
-    ]
-
-    # Mock the extraction of user credentials
+    # Mock user credentials
     mock_extract_credentials.return_value = {
         "access_key": "mock_access_key",
         "secret_key": "mock_secret_key",
-        "token": "mock_session_token",
+        "token": "mock_token",
     }
 
     es_query_response = {
@@ -196,11 +186,50 @@ def test_handler_valid_call_id(
                         "queue_id": "1877122",
                     },
                 },
+                {
+                    "_index": "call-details-000001",
+                    "_type": "_doc",
+                    "_id": "1234567",
+                    "_score": 4.227655,
+                    "_source": {
+                        "original_contact_id": "9149193817430001661",
+                        "extension": "1546752",
+                        "customer_phone_number": "5147228029",
+                        "agent_email": "alyssa.ficher@belairdirect.com",
+                        "distributor_number": "BEL",
+                        "created_at_": "2024-01-10T15:07:02.782256+00:00",
+                        "start_datetime": "2024-01-10T15:02:13.157913+00:00",
+                        "end_datetime": "2021-11-25T16:27:28.300000+00:00",
+                        "video_recorded": False,
+                        "call_direction": "1",
+                        "language": "F",
+                        "organization_unit": "- Ammar Shabbir",
+                        "duration": 600,
+                        "agent_full_name": "Alyssa Ficher",
+                        "filename_prefix": "10-01-2024_10-02-13_sid_1234567_dbsid_719",
+                        "call_context": "LOY",
+                        "company_number": "010",
+                        "line_of_business": "AUP",
+                        "total_hold_time": 0,
+                        "agent_pbxid": "46752",
+                        "region": "CAN",
+                        "queue_id": "",
+                    },
+                },
             ],
         },
     }
     request_mock = MagicMock(return_value=es_query_response)
 
+    mock_get_user_groups.return_value = [
+        PermissionGroup(
+            id=GROUP_1_NAME,
+            name=GROUP_1_NAME,
+            description="Test group description",
+            distributors=["BEL", "BNA"],
+            linesOfBusiness=["RE", "AUP"],
+        )
+    ]
     create_es_client_function.return_value.search_documents = request_mock
     handler = build_handler(
         create_dynamodb_client_fn=create_dynamodb_client_function,
@@ -213,7 +242,7 @@ def test_handler_valid_call_id(
     assert_body(response, event_with_user["body"])
 
     dynamo_items = dynamodb.scan(TableName=TRANSCRIBE_ON_REQUEST_STATUS_TABLE)
-    assert len(dynamo_items["Items"]) == 1
+    assert len(dynamo_items["Items"]) == 2
 
     sqs_messages = get_all_messages(sqs_client=sqs, queue_url=SQS_QUEUE_URL)
 
@@ -235,3 +264,91 @@ def test_handler_valid_call_id(
             value["_source"],
             ["on_request_job_id", "wav_url", "on_request_job_user", "sid"],
         )
+
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+)
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
+)
+def test_handler_user_without_rights(
+    mock_extract_credentials,
+    mock_get_user_groups,
+    event_with_user,
+    create_dynamodb_client_function,
+    create_es_client_function,
+    create_sqs_client_function,
+):
+    # Mock user credentials
+    mock_extract_credentials.return_value = {
+        "access_key": "mock_access_key",
+        "secret_key": "mock_secret_key",
+        "token": "mock_token",
+    }
+
+    # Mock user groups to simulate user without rights
+    mock_get_user_groups.return_value = ["NoAccessGroup"]
+
+    # Mock the Elasticsearch client's `validate_user_access` to return False
+    create_es_client_function.return_value.validate_user_access = MagicMock(return_value=False)
+
+    # Build the handler
+    handler = build_handler(
+        create_dynamodb_client_fn=create_dynamodb_client_function,
+        create_es_client_fn=create_es_client_function,
+        create_sqs_client_fn=create_sqs_client_function,
+    )
+
+    # Invoke the handler and assert AccessDeniedError is raised
+    with pytest.raises(AccessDeniedError) as excinfo:
+        handler(event_with_user, {})
+
+    # Assert the error message
+    assert "User group does not have access to transcribe calls." in str(excinfo.value)
+
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+)
+def test_handler_invalid_call_id(
+    mock_get_user_groups,
+    event_with_user,
+    create_dynamodb_client_function,
+    create_es_client_function,
+    create_sqs_client_function,
+):
+    request_mock = MagicMock(
+        return_value={
+            "hits": {
+                "total": {"value": 1, "relation": "eq"},
+                "hits": [
+                    {
+                        "_index": "call-details-000001",
+                        "_type": "_doc",
+                        "_id": "7654321",
+                        "_score": 4.227655,
+                        "_source": {},
+                    }
+                ],
+            },
+        }
+    )
+
+    mock_get_user_groups.return_value = [
+        PermissionGroup(
+            id=GROUP_1_NAME,
+            name=GROUP_1_NAME,
+            description="Test group description",
+            distributors=["BEL", "BNA"],
+            linesOfBusiness=["RE", "AUP"],
+        )
+    ]
+    create_es_client_function.return_value.search_documents = request_mock
+    handler = build_handler(
+        create_dynamodb_client_fn=create_dynamodb_client_function,
+        create_es_client_fn=create_es_client_function,
+        create_sqs_client_fn=create_sqs_client_function,
+    )
+    response = handler(event_with_user, {})
+
+    assert_status_code(response, 400)
+    assert_error_message(response, "Invalid call_ids: ['1234567']")
