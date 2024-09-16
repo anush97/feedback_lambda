@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from common.errors import ConfigurationError, AccessDeniedError, ValidationError  # Import AccessDeniedError and ValidationError
+from common.errors import AccessDeniedError, ValidationError, ConfigurationError, ElasticsearchFailedRequestError
 from common.models.admin import PermissionGroup
 from functions.transcribe_on_request_POST.transcribe_on_request_POST_handler import (
     build_handler,
@@ -44,7 +44,7 @@ def event_with_user():
             "Accept-Encoding": "identity",
             "cookie": {
                 "CQ:access_token": "test_access_token",
-                "CQ:identity": "eyJraWQiOiI2b0xxQnZWZWlJY1FsYmhoMmpBa2NONE5Dd0NxcHlOVVd3Ym9uWVpnUE9VPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiS0dVU05tQklLV0dKeWs0WGd0RGxDZyIsInN1YiI6ImZjMmZhZGIzLTI5ZmEtNDk1Yy04YzA4LTE5YmEwZDc2NzQxNyIsImNvZ25pdG86Z3JvdXBzIjpbImNhLWNlbnRyYWwtMV9paHJ6UThqRTVfSUZDQXp1cmVJZCJdLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImlzcyI6Imh0dHBzOi8vY29nbml0by1pZHAuY2EtY2VudHJhbC0xLmFtYXpvbmF3cy5jb20vY2EtY2VudHJhbC0xX2locnpROGpFNSIsImNvZ25pdG86dXNlcm5hbWUiOiJJRkNBenVyZUlkX3Rlc3QudXNlckBpbnRhY3QubmV0IiwiZ2l2ZW5fbmFtZSI6IlRlc3QiLCJhdWQiOiIyb29hYWE4Y3BybGUyMGo5YThqbzgydnV1byIsImlkZW50aXRpZXMiOlt7InVzZXJJZCI6InRlc3QudXNlckBpbnRhY3QubmV0IiwicHJvdmlkZXJOYW1lIjoiSUZDQXp1cmVJZCIsInByb3ZpZGVyVHlwZSI6IlNBTUwiLCJpc3N1ZXIiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC9iODgwZWVjYS1mMWZiLTRjOTEtYmZmNi04MmU4NDM1MGE2ZTYvIiwicHJpbWFyeSI6InRydWUiLCJkYXRlQ3JlYXRlZCI6IjE2MDY0MjMxNTE2MTIifV0sInRva2VuX3VzZSI6ImlkIiwiYXV0aF90aW1lIjoxNjE0MDk3MDYzLCJleHAiOjI2MTQxMTM2MjEsImlhdCI6MTYxNDExMDAyMSwiZmFtaWx5X25hbWUiOiJVc2VyIiwiZW1haWwiOiJ0ZXN0LnVzZXJAaW50YWN0Lm5ldCJ9.P0614vsawvrNeAeS0CBObNbNbOTjfN7hgfXX7xMA-QsrZUMKEtXHpwqaHSN1ldFxq5aLMMOXahy5VgeSPDRkX3eppixlpGcoFuYz_nmK_XMZ3DWpo78N73ykgBf6HOSjpFjClczT9g3maur3YBtru9lngYwTMFtBHXlj_T0qBV_ngxJGWiqj2WPvba3p4r1Bs14hb-uNkSBQqLChihkW-iR3og9uhpRQf0khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL-iUNYSKvZbMLqdPC1byYBd4C3eC9m_c0QA_8-EyBcEZm4x2Mf0eCw",
+                "CQ:identity": "eyJraWQiOiI2b0xxQnZWZWlJY1FsYmhoMmpBa2NONE5Dd0NxcHlOVVd3Ym9uWVpnUE9VPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiS0dVU05tQklLV0dKeWs0WGd0RGxDZyIsInN1YiI6ImZjMmZhZGIzLTI5ZmEtNDk1Yy04YzA4LTE5YmEwZDc2NzQxNyIsImNvZ25pdG86Z3JvdXBzIjpbImNhLWNlbnRyYWwtMV9paHJ6UThqRTVfSUZDQXp1cmVJZCJdLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImlzcyI6Imh0dHBzOi8vY29nbml0by1pZHAuY2EtY2VudHJhbC0xLmFtYXpvbmF3cy5jb20vY2EtY2VudHJhbC0xX2locnpROGpFNSIsImNvZ25pdG86dXNlcm5hbWUiOiJJRkNBenVyZUlkX3Rlc3QudXNlckBpbnRhY3QubmV0IiwiZ2l2ZW5fbmFtZSI6IlRlc3QiLCJhdWQiOiIyb29hYWE4Y3BybGUyMGo5YThqbzgydnV1byIsImlkZW50aXRpZXMiOlt7InVzZXJJZCI6InRlc3QudXNlckBpbnRhY3QubmV0IiwicHJvdmlkZXJOYW1lIjoiSUZDQXp1cmVJZCIsInByb3ZpZGVyVHlwZSI6IlNBTUwiLCJpc3N1ZXIiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC9iODgwZWVjYS1mMWZiLTRjOTEtYmZmNi04MmU4NDM1MGE2ZTYvIiwicHJpbWFyeSI6InRydWUiLCJkYXRlQ3JlYXRlZCI6IjE2MDY0MjMxNTE2MTIifV0sInRva2VuX3VzZSI6ImlkIiwiYXV0aF90aW1lIjoxNjE0MDk3MDYzLCJleHAiOjI2MTQxMTM2MjEsImlhdCI6MTYxNDExMDAyMSwiZmFtaWx5X25hbWUiOiJVc2VyIiwiZW1haWwiOiJ0ZXN0LnVzZXJAaW50YWN0Lm5ldCJ9.P0614vsawvrNeAeS0CBObNbNbOTjfN7hgfXX7xMA-QsrZUMKEtXHpwqaHSN1ldFxq5aLMMOXahy5VgeSPDRkX3eppixlpGcoFuYz_nmK_XMZ3DWpo78N73ykgBf6HOSjpFjClczT9g3maur3YBtru9lngYwTMFtBHXlj_T0qBV_ngxJGWiqj2WPvba3p4r1Bs14hb-uNkSBQqLChihkW-iR3og9uhpRQf0khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL-iUNYSKvZbMLqdPC1byYBd4C3cE9m_c0QA_8-EyBcEZm4x2Mf0eCw",
             },
         },
         "body": ["7654321", "1234567"],
@@ -134,6 +134,7 @@ def test_missing_env_variable(
 )
 @mock.patch(
     "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
+)
 def test_handler_valid_call_id(
     mock_extract_credentials,
     mock_get_user_groups,
@@ -141,8 +142,6 @@ def test_handler_valid_call_id(
     create_dynamodb_client_function,
     create_es_client_function,
     create_sqs_client_function,
-    dynamodb,
-    sqs,
 ):
     # Mock user credentials
     mock_extract_credentials.return_value = {
@@ -151,7 +150,7 @@ def test_handler_valid_call_id(
         "token": "mock_token",
     }
 
-    # Mock user groups
+    # Mock user groups to simulate user with rights
     mock_get_user_groups.return_value = [
         PermissionGroup(
             id=GROUP_1_NAME,
@@ -162,35 +161,33 @@ def test_handler_valid_call_id(
         )
     ]
 
-    # Mock Elasticsearch search_documents to return valid call IDs
-    es_query_response = {
-        "hits": {
-            "total": {"value": 2, "relation": "eq"},
-            "hits": [
-                {
-                    "_index": "call-details-000001",
-                    "_type": "_doc",
-                    "_id": "7654321",
-                    "_score": 4.227655,
-                    "_source": {
-                        "original_contact_id": "9149195935190001661",
-                        "filename_prefix": "testfile1",
+    # Mock Elasticsearch search_documents to return a response indicating valid call_ids
+    request_mock = MagicMock(
+        return_value={
+            "hits": {
+                "total": {"value": 2, "relation": "eq"},
+                "hits": [
+                    {
+                        "_index": "call-details-000001",
+                        "_type": "_doc",
+                        "_id": "7654321",
+                        "_source": {
+                            "filename_prefix": "10-01-2024_10-02-12_sid_7654321_dbsid_719"
+                        },
                     },
-                },
-                {
-                    "_index": "call-details-000001",
-                    "_type": "_doc",
-                    "_id": "1234567",
-                    "_score": 4.227655,
-                    "_source": {
-                        "original_contact_id": "9149193817430001661",
-                        "filename_prefix": "testfile2",
+                    {
+                        "_index": "call-details-000001",
+                        "_type": "_doc",
+                        "_id": "1234567",
+                        "_source": {
+                            "filename_prefix": "10-01-2024_10-02-13_sid_1234567_dbsid_719"
+                        },
                     },
-                },
-            ],
-        },
-    }
-    create_es_client_function.return_value.search_documents = MagicMock(return_value=es_query_response)
+                ],
+            },
+        }
+    )
+    create_es_client_function.return_value.search_documents = request_mock
 
     # Build the handler
     handler = build_handler(
@@ -202,17 +199,37 @@ def test_handler_valid_call_id(
     # Invoke the handler
     response = handler(event_with_user, {})
 
-    # Assert the response status code and body
+    # Assert that the response status is 201 (Created)
     assert_status_code(response, 201)
+    # Assert the response body contains the call_ids
     assert_body(response, event_with_user["body"])
 
-    # Check if DynamoDB is updated
-    dynamo_items = dynamodb.scan(TableName=TRANSCRIBE_ON_REQUEST_STATUS_TABLE)
+    # Validate DynamoDB entries
+    dynamo_items = create_dynamodb_client_function().scan(TableName=TRANSCRIBE_ON_REQUEST_STATUS_TABLE)
     assert len(dynamo_items["Items"]) == 2
 
-    # Check if messages were published to SQS
-    sqs_messages = get_all_messages(sqs_client=sqs, queue_url=SQS_QUEUE_URL)
+    # Validate if messages were published to SQS
+    sqs_messages = get_all_messages(sqs_client=create_sqs_client_function(), queue_url=SQS_QUEUE_URL)
     assert len(sqs_messages) == 2
+
+    for index, value in enumerate(request_mock.return_value["hits"]["hits"]):
+        # Validate the item in DynamoDB
+        assert dynamo_items["Items"][index]["callId"] == {"S": value["_id"]}
+
+        # Validate if messages were published to SQS
+        sqs_message = json.loads(sqs_messages[index])["Records"][0]
+        assert sqs_message["sid"] == value["_id"]
+        assert "on_request_job_id" in sqs_message
+        assert (
+            sqs_message["wav_url"]
+            == f"s3://{AUDIO_SOURCE_BUCKET}/{AUDIO_SOURCE_PREFIX}/{value['_source']['filename_prefix']}.wav"
+        )
+        assert sqs_message["on_request_job_user"] == "test.user@intact.net"
+        assert_same_dict(
+            sqs_message,
+            value["_source"],
+            ["on_request_job_id", "wav_url", "on_request_job_user", "sid"],
+        )
 
 @mock.patch(
     "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
@@ -240,7 +257,7 @@ def test_handler_user_without_rights(
 
     # Mock the Elasticsearch client's `validate_user_access` to raise AccessDeniedError
     es_client_mock = MagicMock()
-    es_client_mock.validate_user_access.side_effect = AccessDeniedError("User does not have access to transcribe calls.")
+    es_client_mock.validate_user_access.side_effect = AccessDeniedError("Access to Elasticsearch was denied.")
     create_es_client_function.return_value = es_client_mock
 
     # Build the handler
@@ -255,7 +272,7 @@ def test_handler_user_without_rights(
         handler(event_with_user, {})
 
     # Assert the error message
-    assert "User does not have access to transcribe calls." in str(excinfo.value)
+    assert "Access to Elasticsearch was denied." in str(excinfo.value)
 
 @mock.patch(
     "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
@@ -278,7 +295,7 @@ def test_handler_invalid_call_id(
         "token": "mock_token",
     }
 
-    # Mock user groups
+    # Mock user groups to simulate user with rights
     mock_get_user_groups.return_value = [
         PermissionGroup(
             id=GROUP_1_NAME,
@@ -289,25 +306,25 @@ def test_handler_invalid_call_id(
         )
     ]
 
-    # Mock Elasticsearch search_documents to return only one valid call ID
-    es_query_response = {
-        "hits": {
-            "total": {"value": 1, "relation": "eq"},
-            "hits": [
-                {
-                    "_index": "call-details-000001",
-                    "_type": "_doc",
-                    "_id": "7654321",
-                    "_score": 4.227655,
-                    "_source": {
-                        "original_contact_id": "9149195935190001661",
-                        "filename_prefix": "testfile1",
-                    },
-                },
-            ],
-        },
-    }
-    create_es_client_function.return_value.search_documents = MagicMock(return_value=es_query_response)
+    # Mock Elasticsearch search_documents to return a response indicating invalid call_ids
+    request_mock = MagicMock(
+        return_value={
+            "hits": {
+                "total": {"value": 1, "relation": "eq"},
+                "hits": [
+                    {
+                        "_index": "call-details-000001",
+                        "_type": "_doc",
+                        "_id": "7654321",
+                        "_source": {
+                            "filename_prefix": "10-01-2024_10-02-12_sid_7654321_dbsid_719"
+                        },
+                    }
+                ],
+            }
+        }
+    )
+    create_es_client_function.return_value.search_documents = request_mock
 
     # Build the handler
     handler = build_handler(
