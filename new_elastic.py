@@ -10,7 +10,7 @@ import boto3
 from requests import Session, Response
 from requests_aws4auth import AWS4Auth
 
-from common.errors import AccessDeniedError
+from common.errors import AccessDeniedError, ElasticsearchFailedRequestError
 from common.search_query_template import OrderField
 from common.std_ext import NullObject
 
@@ -22,7 +22,6 @@ _logger = logging.getLogger(__name__)
 AWS_REGION = "ca-central-1"
 ES_HEADERS = {"Content-Type": "application/json"}
 
-
 def append_order_by(query_dict: dict, order_field: OrderField) -> dict:
     query_sort = {
         order_field.field: {
@@ -33,7 +32,6 @@ def append_order_by(query_dict: dict, order_field: OrderField) -> dict:
     query_dict["sort"] = [query_sort]
     return query_dict
 
-
 def offset_paginator_factory(limit=10, strategy="offset"):
     def append_pagination_with_from_size(query_dict, offset=0):
         query_dict["size"] = limit
@@ -43,10 +41,45 @@ def offset_paginator_factory(limit=10, strategy="offset"):
     if strategy == "offset":
         return append_pagination_with_from_size
 
+class ElasticSearch:
+    def __init__(
+        self, host, index, requests, auth, results_map, protocol="https", logger=None
+    ):
+        warnings.warn("Deprecated Class, use ElasticSearchV2", DeprecationWarning)
+        self.host = host
+        self.index = index  # Use alias as index
+        self.requests = requests
+        self.auth = auth
+        if logger is None:
+            logger = NullObject()
+        self.logger = logger
+        self.url = f"{protocol}://{self.host}/{self.index}"
+        self.results_map = results_map
+        self.response = None
+        self.results = []
+        self.total = 0
+        self.headers = ES_HEADERS
 
-class ElasticsearchFailedRequestError(Exception):
-    pass
+    def query(self, query):
+        self.logger.info(f"Query: {json.dumps(query, indent=2)}")
+        # Make the signed HTTP request
+        es_response = self.requests.get(
+            f"{self.url}/_search",
+            auth=self.auth,
+            headers=self.headers,
+            data=json.dumps(query),
+        )
+        self.response = json.loads(es_response.text)
+        to_log = copy.deepcopy(self.response)
 
+        if "hits" in self.response and "hits" in self.response["hits"]:
+            to_log["hits"]["hits"] = "omitted"
+            hits = map(self.results_map, self.response["hits"]["hits"])
+            hits = filter(lambda x: isinstance(x, dict), hits)
+            self.results = list(hits)
+            self.total = self.response["hits"]["total"]["value"]
+
+        self.logger.info(f"ElasticSearch results: {to_log}")
 
 class ElasticSearchV2:
     def __init__(
@@ -107,19 +140,44 @@ class ElasticSearchV2:
 
         return response
 
+    def validate_user_access(self, user_groups: list) -> bool:
+        """Validate if the user has access to transcribe calls."""
+        try:
+            # Construct an Elasticsearch query to check user's group access
+            query = {
+                "query": {"bool": {"should": [{"terms": {"user_group": user_groups}}]}},
+                "size": 1,  # Limit to 1 to quickly check if access exists
+            }
+            # Query Elasticsearch for access validation
+            response = self.__request(
+                verb="GET", endpoint=f"{self.es_url}/access-rights/_search", body=query
+            )
+            es_response = json.loads(response.text)
+
+            # If hits are found, user group has access
+            if es_response["hits"]["total"]["value"] > 0:
+                return True
+
+            # Log and return False if the user doesn't have access
+            self.logger.error("User does not have the rights to transcribe calls.")
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Error during user group access validation: {e}")
+            return False
+
+    # Important Functions Preserved
     def request(self, verb: str, endpoint: str, body: Dict = None) -> Dict:
-        """Generic request method for Elasticsearch."""
+        """Generic request function."""
         response = self.__request(verb, endpoint, body)
         return json.loads(response.text)
 
     def get_document(self, index: str, _id: str) -> Dict:
-        """Retrieve a document from Elasticsearch."""
         endpoint = f"{index}/_doc/{_id}"
         response = self.__request(verb="GET", endpoint=endpoint)
         return json.loads(response.text)
 
     def search_documents(self, index: str, query: Dict) -> Dict:
-        """Search for documents in Elasticsearch."""
         endpoint = f"{index}/_search"
         response = self.__request(verb="GET", endpoint=endpoint, body=query)
         return json.loads(response.text)
@@ -166,33 +224,6 @@ class ElasticSearchV2:
         endpoint = f"{index}/_update_by_query/?retry_on_conflict={max_retries}"
         response = self.__request(verb="POST", endpoint=endpoint, body=update_query)
         return json.loads(response.text)
-
-    def validate_user_access(self, user_groups: list) -> bool:
-        """Validate if the user has access to transcribe calls."""
-        try:
-            # Construct an Elasticsearch query to check user's group access
-            query = {
-                "query": {"bool": {"should": [{"terms": {"user_group": user_groups}}]}},
-                "size": 1,  # Limit to 1 to quickly check if access exists
-            }
-            # Query Elasticsearch for access validation
-            response = self.__request(
-                verb="GET", endpoint=f"{self.es_url}/access-rights/_search", body=query
-            )
-            es_response = json.loads(response.text)
-
-            # If hits are found, user group has access
-            if es_response["hits"]["total"]["value"] > 0:
-                return True
-
-            # Log and return False if the user doesn't have access
-            self.logger.error("User does not have the rights to transcribe calls.")
-            return False
-
-        except Exception as e:
-            self.logger.error(f"Error during user group access validation: {e}")
-            return False
-
 
 def create_es_client(
     host: str,
