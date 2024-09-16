@@ -1,0 +1,115 @@
+/home/anushka-sharma/build/callme-backend-api/.venv/bin/python /snap/pycharm-professional/412/plugins/python-ce/helpers/coverage_runner/run_coverage.py run --omit="/snap/pycharm-professional/412/plugins/python-ce/helpers*" /snap/pycharm-professional/412/plugins/python-ce/helpers/pycharm/_jb_pytest_runner.py --path /home/anushka-sharma/build/callme-backend-api/tests/unit/transcribe_on_request_POST/test_transcribe_on_request_POST.py 
+Testing started at 3:06 PM ...
+Launching pytest with arguments /home/anushka-sharma/build/callme-backend-api/tests/unit/transcribe_on_request_POST/test_transcribe_on_request_POST.py --no-header --no-summary -q in /home/anushka-sharma/build/callme-backend-api/tests/unit/transcribe_on_request_POST
+
+============================= test session starts ==============================
+collecting ... collected 11 items
+
+test_transcribe_on_request_POST.py::test_build_handler 
+test_transcribe_on_request_POST.py::test_missing_env_variable[ELASTICSEARCH_HOST] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[ELASTICSEARCH_INDEX] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[TRANSCRIBE_ON_REQUEST_STATUS_TABLE] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[DAYS_TO_EXPIRE] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[AUDIO_SOURCE_BUCKET] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[AUDIO_SOURCE_PREFIX] 
+test_transcribe_on_request_POST.py::test_missing_env_variable[SQS_QUEUE_URL] 
+test_transcribe_on_request_POST.py::test_handler_valid_call_id 
+test_transcribe_on_request_POST.py::test_handler_user_without_rights 
+test_transcribe_on_request_POST.py::test_handler_invalid_call_id 
+
+========================= 1 failed, 10 passed in 2.41s =========================
+PASSED            [  9%]PASSED [ 18%]PASSED [ 27%]PASSED [ 36%]PASSED [ 45%]PASSED [ 54%]PASSED [ 63%]PASSED [ 72%]PASSED    [ 81%]FAILED [ 90%]
+tests/unit/transcribe_on_request_POST/test_transcribe_on_request_POST.py:267 (test_handler_user_without_rights)
+headers = {}
+
+    def extract_tokens_from_cookies(headers):
+        try:
+            cookie = SimpleCookie()
+            if "cookie" in headers:
+                cookie.load(headers["cookie"])
+>           return str(cookie[ACCESS_TOKEN_KEY_NAME].value), str(
+                cookie[IDENTITY_TOKEN_KEY_NAME].value
+            )
+E           KeyError: 'CQ:access_token'
+
+../../../common/credentials_verifier.py:31: KeyError
+
+The above exception was the direct cause of the following exception:
+
+mock_extract_credentials = <MagicMock name='extract_credentials' id='140094628822800'>
+mock_get_user_groups = <MagicMock name='get_user_groups' id='140094610598800'>
+event_with_user = <MagicMock name='extract_credentials' id='140094611704896'>
+create_dynamodb_client_function = <MagicMock name='get_user_groups' id='140094611714976'>
+create_es_client_function = <MagicMock id='140094643032256'>
+create_sqs_client_function = <MagicMock id='140094642995744'>
+
+    @mock.patch(
+        "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+    )
+    @mock.patch(
+        "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
+    )
+    @mock.patch(
+        "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+    )
+    @mock.patch(
+        "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
+    )
+    def test_handler_user_without_rights(
+        mock_extract_credentials,
+        mock_get_user_groups,
+        event_with_user,
+        create_dynamodb_client_function,
+        create_es_client_function,
+        create_sqs_client_function,
+    ):
+        # Mock user credentials
+        mock_extract_credentials.return_value = {
+            "access_key": "mock_access_key",
+            "secret_key": "mock_secret_key",
+            "token": "mock_token",
+        }
+    
+        # Mock user groups to simulate user without rights
+        mock_get_user_groups.return_value = ["NoAccessGroup"]
+    
+        # Mock the Elasticsearch client's `validate_user_access` to raise AccessDeniedError
+        es_client_mock = MagicMock()
+        es_client_mock.validate_user_access.side_effect = AccessDeniedError("User does not have access to transcribe calls.")
+        create_es_client_function.return_value = es_client_mock
+    
+        # Build the handler
+        handler = build_handler(
+            create_dynamodb_client_fn=create_dynamodb_client_function,
+            create_es_client_fn=create_es_client_function,
+            create_sqs_client_fn=create_sqs_client_function,
+        )
+    
+        # Invoke the handler and assert AccessDeniedError is raised
+        with pytest.raises(AccessDeniedError) as excinfo:
+>           handler(event_with_user, {})
+
+test_transcribe_on_request_POST.py:312: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../common/decorator.py:270: in wrapped
+    access_token, identity_token = extract_tokens_from_cookies(event_headers)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+headers = {}
+
+    def extract_tokens_from_cookies(headers):
+        try:
+            cookie = SimpleCookie()
+            if "cookie" in headers:
+                cookie.load(headers["cookie"])
+            return str(cookie[ACCESS_TOKEN_KEY_NAME].value), str(
+                cookie[IDENTITY_TOKEN_KEY_NAME].value
+            )
+        except KeyError as e:
+>           raise HeaderError("Missing tokens in cookies or they are expired") from e
+E           common.errors.HeaderError: Missing tokens in cookies or they are expired
+
+../../../common/credentials_verifier.py:35: HeaderError
+PASSED  [100%]Wrote XML report to /home/anushka-sharma/.cache/JetBrains/PyCharm2024.2/coverage/callme_backend_api$pytest_in_transcribe_on_request_POST_handler.xml
+
+Process finished with exit code 0
