@@ -1,0 +1,45 @@
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+)
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
+)
+def test_handler_user_without_rights(
+    mock_extract_credentials,
+    mock_get_user_groups,
+    event_with_user,
+    create_dynamodb_client_function,
+    create_es_client_function,
+    create_sqs_client_function,
+):
+    # Modify the event_with_user fixture to combine cookies into a single string
+    event_with_user["headers"]["cookie"] = "CQ:access_token=test_access_token; CQ:identity=eyJraWQiOiI2b0xxQnZWZWlJY1FsYmhoMmpBa2NONE5Dd0NxcHlOVVd3Ym9uWVpnUE9VPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiS0dVU05tQklLV0dKeWs0WGd0RGxDZyIsInN1YiI6ImZjMmZhZGIzLTI5ZmEtNDk1Yy04YzA4LTE5YmEwZDc2NzQxNyIsImNvZ25pdG86Z3JvdXBzIjpbImNhLWNlbnRyYWwtMV9paHJ6UThqRTVfSUZDQXp1cmVJZCJdLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImlzcyI6Imh0dHBzOi8vY29nbml0by1pZHAuY2EtY2VudHJhbC0xLmFtYXpvbmF3cy5jb20vY2EtY2VudHJhbC0xX2locnpROGpFNSIsImNvZ25pdG86dXNlcm5hbWUiOiJJRkNBenVyZUlkX3Rlc3QudXNlckBpbnRhY3QubmV0IiwiZ2l2ZW5fbmFtZSI6IlRlc3QiLCJhdWQiOiIyb29hYWE4Y3BybGUyMGo5YThqbzgydnV1byIsImlkZW50aXRpZXMiOlt7InVzZXJJZCI6InRlc3QudXNlckBpbnRhY3QubmV0IiwicHJvdmlkZXJOYW1lIjoiSUZDQXp1cmVJZCIsInByb3ZpZGVyVHlwZSI6IlNBTUwiLCJpc3N1ZXIiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC9iODgwZWVjYS1mMWZiLTRjOTEtYmZmNi04MmU4NDM1MGE2ZTYvIiwicHJpbWFyeSI6InRydWUiLCJkYXRlQ3JlYXRlZCI6IjE2MDY0MjMxNTE2MTIifV0sInRva2VuX3VzZSI6ImlkIiwiYXV0aF90aW1lIjoxNjE0MDk3MDYzLCJleHAiOjI2MTQxMTM2MjEsImlhdCI6MTYxNDExMDAyMSwiZmFtaWx5X25hbWUiOiJVc2VyIiwiZW1haWwiOiJ0ZXN0LnVzZXJAaW50YWN0Lm5ldCJ9.P0614vsawvrNeAeS0CBObNbNbOTjfN7hgfXX7xMA-QsrZUMKEtXHpwqaHSN1ldFxq5aLMMOXahy5VgeSPDRkX3eppixlpGcoFuYz_nmK_XMZ3DWpo78N73ykgBf6HOSjpFjClczT9g3maur3YBtru9lngYwTMFtBHXlj_T0qBV_ngxJGWiqj2WPvba3p4r1Bs14hb-uNkSBQqLChihkW-iR3og9uhpRQf0khNq1Zl4PsOYoqUkKfR9zEetOfpWOidnrnbttLndVcTkHQEwLAS3wnL1jWS2KkL-iUNYSKvZbMLqdPC1byYBd4C3e9m_c0QA_8-EyBcEZm4x2Mf0eCw"
+
+    # Mock user credentials
+    mock_extract_credentials.return_value = {
+        "access_key": "mock_access_key",
+        "secret_key": "mock_secret_key",
+        "token": "mock_token",
+    }
+
+    # Mock user groups to simulate user without rights
+    mock_get_user_groups.return_value = ["NoAccessGroup"]
+
+    # Mock the Elasticsearch client's `validate_user_access` to raise AccessDeniedError
+    es_client_mock = MagicMock()
+    es_client_mock.validate_user_access.side_effect = AccessDeniedError("User does not have access to transcribe calls.")
+    create_es_client_function.return_value = es_client_mock
+
+    # Build the handler
+    handler = build_handler(
+        create_dynamodb_client_fn=create_dynamodb_client_function,
+        create_es_client_fn=create_es_client_function,
+        create_sqs_client_fn=create_sqs_client_function,
+    )
+
+    # Invoke the handler and assert AccessDeniedError is raised
+    with pytest.raises(AccessDeniedError) as excinfo:
+        handler(event_with_user, {})
+
+    # Assert the error message
+    assert "User does not have access to transcribe calls." in str(excinfo.value)
