@@ -1,0 +1,112 @@
+test_handler_user_without_rights -
+
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+)
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
+)
+def test_handler_user_without_rights(
+    mock_extract_credentials,
+    mock_get_user_groups,
+    event_with_user,
+    create_dynamodb_client_function,
+    create_es_client_function,
+    create_sqs_client_function,
+):
+    # Mock user credentials
+    mock_extract_credentials.return_value = {
+        "access_key": "mock_access_key",
+        "secret_key": "mock_secret_key",
+        "token": "mock_token",
+    }
+
+    # Mock user groups to simulate user without rights
+    mock_get_user_groups.return_value = ["NoAccessGroup"]
+
+    # Mock the Elasticsearch client's `validate_user_access` to raise AccessDeniedError
+    es_client_mock = MagicMock()
+    es_client_mock.validate_user_access.side_effect = AccessDeniedError("User does not have access to transcribe calls.")
+    create_es_client_function.return_value = es_client_mock
+
+    # Build the handler
+    handler = build_handler(
+        create_dynamodb_client_fn=create_dynamodb_client_function,
+        create_es_client_fn=create_es_client_function,
+        create_sqs_client_fn=create_sqs_client_function,
+    )
+
+    # Invoke the handler and assert AccessDeniedError is raised
+    with pytest.raises(AccessDeniedError) as excinfo:
+        handler(event_with_user, {})
+
+    # Assert the error message
+    assert "User does not have access to transcribe calls." in str(excinfo.value)
+
+test_handler_invalid_call_id -
+
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+)
+@mock.patch(
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
+)
+def test_handler_invalid_call_id(
+    mock_extract_credentials,
+    mock_get_user_groups,
+    event_with_user,
+    create_dynamodb_client_function,
+    create_es_client_function,
+    create_sqs_client_function,
+):
+    # Mock user credentials
+    mock_extract_credentials.return_value = {
+        "access_key": "mock_access_key",
+        "secret_key": "mock_secret_key",
+        "token": "mock_token",
+    }
+
+    # Mock user groups to simulate user with rights
+    mock_get_user_groups.return_value = [
+        PermissionGroup(
+            id=GROUP_1_NAME,
+            name=GROUP_1_NAME,
+            description="Test group description",
+            distributors=["BEL", "BNA"],
+            linesOfBusiness=["RE", "AUP"],
+        )
+    ]
+    
+    # Mock Elasticsearch search_documents to return a response indicating invalid call_ids
+    request_mock = MagicMock(
+        return_value={
+            "hits": {
+                "total": {"value": 1, "relation": "eq"},
+                "hits": [
+                    {
+                        "_index": "call-details-000001",
+                        "_type": "_doc",
+                        "_id": "7654321",
+                        "_source": {},  # This ID is valid
+                    }
+                ],
+            },
+        }
+    )
+    create_es_client_function.return_value.search_documents = request_mock
+
+    # Build the handler
+    handler = build_handler(
+        create_dynamodb_client_fn=create_dynamodb_client_function,
+        create_es_client_fn=create_es_client_function,
+        create_sqs_client_fn=create_sqs_client_function,
+    )
+
+    # Invoke the handler
+    response = handler(event_with_user, {})
+
+    # Assert that the response status is 400 (Bad Request)
+    assert_status_code(response, 400)
+
+    # Assert the specific error message related to invalid call_ids
+    assert "Invalid call_ids: ['1234567']" in response["body"]
