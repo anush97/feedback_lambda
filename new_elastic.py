@@ -225,14 +225,27 @@ class ElasticSearchV2:
         response = self.__request(verb="POST", endpoint=endpoint, body=update_query)
         return json.loads(response.text)
 
+
 def create_es_client(
     host: str,
     user_groups: list,
-    auth: AWS4Auth | Dict,
+    auth: AWS4Auth | Dict = None,
     use_ssl: bool = True,
     logger=None,
 ) -> ElasticSearchV2:
     """Creates an Elasticsearch client and performs early access validation."""
+
+    # Use boto3 to get AWS credentials if auth is not provided
+    if not auth:
+        credentials = boto3.Session().get_credentials()
+        auth = AWS4Auth(
+            credentials.access_key,
+            credentials.secret_key,
+            AWS_REGION,
+            "es",
+            session_token=credentials.token,
+        )
+
     es_client = ElasticSearchV2(host=host, auth=auth, use_ssl=use_ssl, logger=logger)
 
     # Perform early access validation
@@ -240,3 +253,4 @@ def create_es_client(
         raise AccessDeniedError("User group does not have access to transcribe calls.")
 
     return es_client
+
