@@ -1,54 +1,37 @@
-@mock.patch("functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.jwt.get_unverified_claims")
-@mock.patch(
-    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
-)
-@mock.patch(
-    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
-)
-def test_handler_user_without_rights(
-    mock_extract_credentials,
-    mock_get_user_groups,
-    mock_get_unverified_claims,  # Add this line
-    event_with_user,
-    create_dynamodb_client_function,
-    create_es_client_function,
-    create_sqs_client_function,
-):
-    # Mock JWT decoding
-    mock_get_unverified_claims.return_value = {
-        "sub": "1234567890",
-        "name": "John Doe",
-        "iat": 1516239022,
-    }
-
-    # Modify the event_with_user fixture to combine cookies into a single string
-    event_with_user["headers"]["cookie"] = "CQ:access_token=test_access_token; CQ:identity=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
-
-    # Mock user credentials
-    mock_extract_credentials.return_value = {
-        "access_key": "mock_access_key",
-        "secret_key": "mock_secret_key",
-        "token": "mock_token",
-    }
-
-    # Mock user groups to simulate user without rights
-    mock_get_user_groups.return_value = ["NoAccessGroup"]
-
-    # Mock the Elasticsearch client's `validate_user_access` to raise AccessDeniedError
-    es_client_mock = MagicMock()
-    es_client_mock.validate_user_access.side_effect = AccessDeniedError("User does not have access to transcribe calls.")
-    create_es_client_function.return_value = es_client_mock
-
-    # Build the handler
-    handler = build_handler(
-        create_dynamodb_client_fn=create_dynamodb_client_function,
-        create_es_client_fn=create_es_client_function,
-        create_sqs_client_fn=create_sqs_client_function,
+FAILED [ 78%]
+tests/unit/queue_id_updater/test_queue_id_updater.py:55 (test_should_build_handler_correctly)
+@mock.patch.dict(
+        os.environ,
+        {
+            "LOG_LEVEL": "DEBUG",
+            "ELASTICSEARCH_HOST": "host",
+            "AWS_REGION": "ca-central-1",
+            "AUDIO_METADATA_BUCKET": "bucket",
+            "PURPOSE": "purpose",
+            "EXTRA_METADATA_PREFIX": "prefix",
+            "NUMBER_OF_DAYS": "5",
+            "ELASTICSEARCH_CALL_DETAILS_INDEX": "es_index",
+            "AWS_ACCESS_KEY_ID": "testing",
+            "AWS_SECRET_ACCESS_KEY": "testing",
+            "AWS_SECURITY_TOKEN": "testing",
+            "AWS_SESSION_TOKEN": "testing",
+            "AWS_DEFAULT_REGION": "ca-central-1",
+        },
+        clear=True,
     )
+    def test_should_build_handler_correctly():
+>       handler = build_handler(MagicMock())
 
-    # Invoke the handler and assert AccessDeniedError is raised
-    with pytest.raises(AccessDeniedError) as excinfo:
-        handler(event_with_user, {})
+tests/unit/queue_id_updater/test_queue_id_updater.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-    # Assert the error message
-    assert "User does not have access to transcribe calls." in str(excinfo.value)
+s3_adapter = <MagicMock id='140700104576304'>
+
+    def build_handler(s3_adapter: S3Adapter):
+        host = os.environ.get("ELASTICSEARCH_HOST", None)
+        logger = logging.getLogger("queue_id_handler")
+        logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
+>       es_client = create_es_client(host=host, use_ssl=True, logger=logger)
+E       TypeError: create_es_client() missing 2 required positional arguments: 'user_groups' and 'auth'
+
+functions/queue_id_updater/queue_id_updater_handler.py:186: TypeError
