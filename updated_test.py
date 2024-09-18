@@ -8,7 +8,7 @@ import pytest
 from common.errors import (
     ConfigurationError,
     AccessDeniedError,
-)  # Import AccessDeniedError
+)
 from common.models.admin import PermissionGroup
 from functions.transcribe_on_request_POST.transcribe_on_request_POST_handler import (
     build_handler,
@@ -40,7 +40,6 @@ AUTHORIZER = {
     "username": "IFCAzureId_test.user@intact.net",
 }
 
-
 @pytest.fixture
 def event_with_user():
     return {
@@ -55,7 +54,6 @@ def event_with_user():
         "requestContext": {"authorizer": AUTHORIZER},
     }
 
-
 @pytest.fixture(scope="function", autouse=True)
 def set_env_variables():
     os.environ["ELASTICSEARCH_INDEX"] = ELASTICSEARCH_INDEX
@@ -67,7 +65,6 @@ def set_env_variables():
     os.environ["AUDIO_SOURCE_BUCKET"] = AUDIO_SOURCE_BUCKET
     os.environ["AUDIO_SOURCE_PREFIX"] = AUDIO_SOURCE_PREFIX
     os.environ["SQS_QUEUE_URL"] = SQS_QUEUE_URL
-
 
 @pytest.fixture(autouse=True, scope="function")
 def setup_resources(dynamodb, sqs):
@@ -96,7 +93,6 @@ def setup_resources(dynamodb, sqs):
 
     sqs.create_queue(QueueName=SQS_QUEUE_URL)
 
-
 def test_build_handler(
     create_dynamodb_client_function,
     create_es_client_function,
@@ -108,7 +104,6 @@ def test_build_handler(
         create_sqs_client_fn=create_sqs_client_function,
     )
     assert result
-
 
 @pytest.mark.parametrize(
     "env_variable",
@@ -136,7 +131,6 @@ def test_missing_env_variable(
             create_es_client_fn=create_es_client_function,
             create_sqs_client_fn=create_sqs_client_function,
         )
-
 
 @mock.patch(
     "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
@@ -273,7 +267,6 @@ def test_handler_valid_call_id(
             value["_source"],
             ["on_request_job_id", "wav_url", "on_request_job_user", "sid"],
         )
-
 
 @mock.patch(
     "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
