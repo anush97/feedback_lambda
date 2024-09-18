@@ -21,6 +21,25 @@ _logger = logging.getLogger(__name__)
 AWS_REGION = "ca-central-1"
 ES_HEADERS = {"Content-Type": "application/json"}
 
+def append_order_by(query_dict: dict, order_field: OrderField) -> dict:
+    query_sort = {
+        order_field.field: {
+            "order": order_field.direction,
+            "missing": order_field.missing,
+        }
+    }
+    query_dict["sort"] = [query_sort]
+    return query_dict
+
+def offset_paginator_factory(limit=10, strategy="offset"):
+    def append_pagination_with_from_size(query_dict, offset=0):
+        query_dict["size"] = limit
+        query_dict["from"] = offset
+        return query_dict
+
+    if strategy == "offset":
+        return append_pagination_with_from_size
+
 class ElasticsearchFailedRequestError(Exception):
     pass
 
@@ -83,20 +102,64 @@ class ElasticSearchV2:
 
         return response
 
-    # Important Functions Preserved
     def request(self, verb: str, endpoint: str, body: Dict = None) -> Dict:
         """Generic request function."""
         response = self.__request(verb, endpoint, body)
         return json.loads(response.text)
 
     def get_document(self, index: str, _id: str) -> Dict:
+        """Retrieve a document from Elasticsearch by ID."""
         endpoint = f"{index}/_doc/{_id}"
         response = self.__request(verb="GET", endpoint=endpoint)
         return json.loads(response.text)
 
     def search_documents(self, index: str, query: Dict) -> Dict:
+        """Search for documents in Elasticsearch based on a query."""
         endpoint = f"{index}/_search"
         response = self.__request(verb="GET", endpoint=endpoint, body=query)
+        return json.loads(response.text)
+
+    def add_document(self, index: str, _id: str, document: Dict) -> Dict:
+        """Create a full document in Elasticsearch."""
+        endpoint = f"{index}/_doc/{_id}"
+        response = self.__request(
+            verb="PUT",
+            endpoint=endpoint,
+            body=document,
+        )
+        return json.loads(response.text)
+
+    def update_document(
+        self, index: str, _id: str, document: Dict, max_retries: int = 3
+    ) -> Dict:
+        """Overwrite or create a full document in Elasticsearch."""
+        endpoint = f"{index}/_update/{_id}?retry_on_conflict={max_retries}"
+        response = self.__request(verb="POST", endpoint=endpoint, body=document)
+        return json.loads(response.text)
+
+    def update_partial_document(
+        self, index: str, _id: str, partial_document: Dict, max_retries: int = 3
+    ) -> Dict:
+        """Update a partial section of a document in Elasticsearch."""
+        endpoint = f"{index}/_update/{_id}?retry_on_conflict={max_retries}"
+        updated_document = {"doc": partial_document}
+        response = self.__request(verb="POST", endpoint=endpoint, body=updated_document)
+        return json.loads(response.text)
+
+    def update_partial_document_by_query(
+        self, index: str, _id: str, update_query: Dict, max_retries: int = 3
+    ) -> Dict:
+        """Update a partial section of a document using a script in Elasticsearch."""
+        endpoint = f"{index}/_update/{_id}?retry_on_conflict={max_retries}"
+        response = self.__request(verb="POST", endpoint=endpoint, body=update_query)
+        return json.loads(response.text)
+
+    def update_documents_by_query(
+        self, index: str, update_query: Dict, max_retries: int = 3
+    ) -> Dict:
+        """Update multiple documents in Elasticsearch by an update query."""
+        endpoint = f"{index}/_update_by_query/?retry_on_conflict={max_retries}"
+        response = self.__request(verb="POST", endpoint=endpoint, body=update_query)
         return json.loads(response.text)
 
 def create_es_client(
@@ -106,6 +169,17 @@ def create_es_client(
     logger=None,
 ) -> ElasticSearchV2:
     """Creates an Elasticsearch client."""
-    
+
+    # Use boto3 to get AWS credentials if auth is not provided
+    if not auth:
+        credentials = boto3.Session().get_credentials()
+        auth = AWS4Auth(
+            credentials.access_key,
+            credentials.secret_key,
+            AWS_REGION,
+            "es",
+            session_token=credentials.token,
+        )
+
     es_client = ElasticSearchV2(host=host, auth=auth, use_ssl=use_ssl, logger=logger)
     return es_client
