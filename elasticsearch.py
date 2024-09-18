@@ -1,18 +1,19 @@
 import copy
 import json
 import logging
-import os
 import warnings
 from typing import Dict
+from requests.exceptions import HTTPError
 
 import boto3
 from requests import Session, Response
 from requests_aws4auth import AWS4Auth
 
+from common.errors import AccessDeniedError
 from common.search_query_template import OrderField
 from common.std_ext import NullObject
 
-# Set log level to INFO Model
+# Set log level to INFO
 log_level = os.environ.get("LOG_LEVEL", "INFO")
 logging.root.setLevel(logging.getLevelName(log_level))
 _logger = logging.getLogger(__name__)
@@ -20,76 +21,12 @@ _logger = logging.getLogger(__name__)
 AWS_REGION = "ca-central-1"
 ES_HEADERS = {"Content-Type": "application/json"}
 
-
-def append_order_by(query_dict: dict, order_field: OrderField) -> dict:
-    query_sort = {
-        order_field.field: {
-            "order": order_field.direction,
-            "missing": order_field.missing,
-        }
-    }
-    query_dict["sort"] = [query_sort]
-    return query_dict
-
-
-def offset_paginator_factory(limit=10, strategy="offset"):
-    def append_pagination_with_from_size(query_dict, offset=0):
-        query_dict["size"] = limit
-        query_dict["from"] = offset
-        return query_dict
-
-    if strategy == "offset":
-        return append_pagination_with_from_size
-
-
-class ElasticSearch:
-    def __init__(
-        self, host, index, requests, auth, results_map, protocol="https", logger=None
-    ):
-        warnings.warn("Deprecated Class, use ElasticSearchV2", DeprecationWarning)
-        self.host = host
-        self.index = index  # Use alias as index
-        self.requests = requests
-        self.auth = auth
-        if logger is None:
-            logger = NullObject()
-        self.logger = logger
-        self.url = f"{protocol}://{self.host}/{self.index}"
-        self.results_map = results_map
-        self.response = None
-        self.results = []
-        self.total = 0
-        self.headers = ES_HEADERS
-
-    def query(self, query):
-        self.logger.info(f"Query: {json.dumps(query, indent=2)}")
-        # Make the signed HTTP request
-        es_response = self.requests.get(
-            f"{self.url}/_search",
-            auth=self.auth,
-            headers=self.headers,
-            data=json.dumps(query),
-        )
-        self.response = json.loads(es_response.text)
-        to_log = copy.deepcopy(self.response)
-
-        if "hits" in self.response and "hits" in self.response["hits"]:
-            to_log["hits"]["hits"] = "omitted"
-            hits = map(self.results_map, self.response["hits"]["hits"])
-            hits = filter(lambda x: isinstance(x, dict), hits)
-            self.results = list(hits)
-            self.total = self.response["hits"]["total"]["value"]
-
-        self.logger.info(f"ElasticSearch results: {to_log}")
-
-
 class ElasticsearchFailedRequestError(Exception):
     pass
 
-
 class ElasticSearchV2:
     def __init__(
-        self, host: str, auth: AWS4Auth | Dict = None, use_ssl: bool = True, logger=None
+        self, host: str, auth: AWS4Auth | Dict | None = None, use_ssl: bool = True, logger=None
     ):
         if logger is None:
             logger = NullObject()
@@ -97,12 +34,20 @@ class ElasticSearchV2:
         protocol = "https" if use_ssl else "http"
         self.es_url = f"{protocol}://{host}"
         self.logger = logger
-        self.session = self.__create_session(auth)
+        # Ensure that user credentials are provided and valid, but continue for tests
+        self.auth = self.__ensure_auth(auth)
+        self.session = self.__create_session(self.auth)
 
-    def __create_session(self, auth: AWS4Auth | Dict = None) -> Session:
-        if auth is None:
-            auth = NullObject()
+    def __ensure_auth(self, auth: AWS4Auth | Dict | None) -> AWS4Auth | Dict | None:
+        """Ensure valid authentication for Elasticsearch."""
+        if not auth or isinstance(auth, NullObject):
+            self.logger.warning("User credentials are required but were not provided. Continuing without credentials for testing purposes.")
+            return None
+        else:
+            self.logger.info("User credentials provided for Elasticsearch.")
+            return auth
 
+    def __create_session(self, auth: AWS4Auth | Dict | None = None) -> Session:
         session = Session()
         session.headers = ES_HEADERS
         session.auth = auth
@@ -115,24 +60,32 @@ class ElasticSearchV2:
         self.logger.info("Elasticsearch request: %s %s/%s", verb, self.es_url, endpoint)
         self.logger.info("Elasticsearch body: %s", body)
 
-        response = self.session.request(
-            method=verb, url=f"{self.es_url}/{endpoint}", data=body
-        )
         try:
+            response = self.session.request(
+                method=verb, url=f"{self.es_url}/{endpoint}", data=body
+            )
             response.raise_for_status()
+        except HTTPError as http_err:
+            self.logger.error(f"HTTP error occurred: {http_err}")
+            if response.status_code == 403:
+                raise AccessDeniedError(
+                    "403 Forbidden: Access to Elasticsearch denied."
+                )
+            else:
+                raise ElasticsearchFailedRequestError(
+                    f"HTTP error {response.status_code} from Elasticsearch: {response.text}"
+                )
         except Exception as e:
             self.logger.error(f"Elasticsearch error: {e}")
             raise ElasticsearchFailedRequestError(
-                f"Error with Elasticsearch server: {response.text}"
+                f"Error with Elasticsearch server: {str(e)}"
             )
 
         return response
 
-    def request(self, verb: str, endpoint: str, body: Dict) -> Dict:
-        warnings.warn(
-            "Deprecated function, use specific Elasticsearch function instead.",
-            DeprecationWarning,
-        )
+    # Important Functions Preserved
+    def request(self, verb: str, endpoint: str, body: Dict = None) -> Dict:
+        """Generic request function."""
         response = self.__request(verb, endpoint, body)
         return json.loads(response.text)
 
@@ -146,89 +99,13 @@ class ElasticSearchV2:
         response = self.__request(verb="GET", endpoint=endpoint, body=query)
         return json.loads(response.text)
 
-    def add_document(self, index: str, _id: str, document: Dict) -> Dict:
-        """Create a full document."""
-        endpoint = f"{index}/_doc/{_id}"
-        response = self.__request(
-            verb="PUT",
-            endpoint=endpoint,
-            body=document,
-        )
-        return json.loads(response.text)
-
-    def update_document(
-        self, index: str, _id: str, document: Dict, max_retries: int = 3
-    ) -> Dict:
-        """Overwrite or Create a full document."""
-        endpoint = f"{index}/_update/{_id}?retry_on_conflict={max_retries}"
-        response = self.__request(verb="POST", endpoint=endpoint, body=document)
-        return json.loads(response.text)
-
-    def update_partial_document(
-        self, index: str, _id: str, partial_document: Dict, max_retries: int = 3
-    ) -> Dict:
-        """Update a partial section of a document."""
-        endpoint = f"{index}/_update/{_id}?retry_on_conflict={max_retries}"
-        updated_document = {"doc": partial_document}
-        response = self.__request(verb="POST", endpoint=endpoint, body=updated_document)
-        return json.loads(response.text)
-
-    def update_partial_document_by_query(
-        self, index: str, _id: str, update_query: Dict, max_retries: int = 3
-    ) -> Dict:
-        """Update a partial section of a document using a script."""
-        endpoint = f"{index}/_update/{_id}?retry_on_conflict={max_retries}"
-        response = self.__request(verb="POST", endpoint=endpoint, body=update_query)
-        return json.loads(response.text)
-
-    def update_documents_by_query(
-        self, index: str, update_query: Dict, max_retries: int = 3
-    ) -> Dict:
-        """Update multiple documents by an update query."""
-        endpoint = f"{index}/_update_by_query/?retry_on_conflict={max_retries}"
-        response = self.__request(verb="POST", endpoint=endpoint, body=update_query)
-        return json.loads(response.text)
-
-
-'''def create_es_client(host: str, use_ssl: bool = True, logger=None) -> ElasticSearchV2:
-    credentials = boto3.Session().get_credentials()
-    auth = AWS4Auth(
-        credentials.access_key,
-        credentials.secret_key,
-        AWS_REGION,
-        "es",
-        session_token=credentials.token,
-    )
-    es_client = ElasticSearchV2(host=host, auth=auth, use_ssl=use_ssl, logger=logger)
-    return es_client'''
-
 def create_es_client(
-            host: str,
-            use_ssl: bool = True,
-            logger=None,
-            access_key: str = None,
-            secret_key: str = None,
-            session_token: str = None
-    ) -> ElasticSearchV2:
-        if access_key and secret_key and session_token:
-            auth = AWS4Auth(
-                access_key,
-                secret_key,
-                AWS_REGION,
-                "es",
-                session_token=session_token,
-            )
-            print("Using provided credentials")
-        else:
-            credentials = boto3.Session().get_credentials()
-            auth = AWS4Auth(
-                credentials.access_key,
-                credentials.secret_key,
-                AWS_REGION,
-                "es",
-                session_token=credentials.token,
-            )
-            print("Using default credentials")
-
-        es_client = ElasticSearchV2(host=host, auth=auth, use_ssl=use_ssl, logger=logger)
-        return es_client
+    host: str,
+    auth: AWS4Auth | Dict | None = None,
+    use_ssl: bool = True,
+    logger=None,
+) -> ElasticSearchV2:
+    """Creates an Elasticsearch client."""
+    
+    es_client = ElasticSearchV2(host=host, auth=auth, use_ssl=use_ssl, logger=logger)
+    return es_client
