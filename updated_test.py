@@ -5,10 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from common.errors import (
-    ConfigurationError,
-    AccessDeniedError,
-)
+from common.errors import ConfigurationError, AccessDeniedError
 from common.models.admin import PermissionGroup
 from functions.transcribe_on_request_POST.transcribe_on_request_POST_handler import (
     build_handler,
@@ -52,6 +49,39 @@ def event_with_user():
         },
         "body": ["7654321", "1234567"],
         "requestContext": {"authorizer": AUTHORIZER},
+    }
+
+@pytest.fixture
+def es_create_query() -> dict:
+    return {
+        "bool": {
+            "must": [
+                {"range": {"created_at_": {"gte": "now-1y"}}},
+                {"terms": {"_id": ["7654321", "1234567"]}},
+                {"match": {"transcribed": False}},
+                {
+                    "bool": {
+                        "should": [
+                            {
+                                "bool": {
+                                    "must": [
+                                        {
+                                            "terms": {
+                                                "distributor_number": [
+                                                    "BEL",
+                                                    "BNA",
+                                                ]
+                                            }
+                                        },
+                                        {"terms": {"line_of_business": ["RE", "AUP"]}},
+                                    ]
+                                }
+                            },
+                        ]
+                    }
+                },
+            ]
+        }
     }
 
 @pytest.fixture(scope="function", autouse=True)
@@ -133,28 +163,22 @@ def test_missing_env_variable(
         )
 
 @mock.patch(
-    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.validate_user_access"
 )
 @mock.patch(
-    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
 )
 def test_handler_valid_call_id(
-    mock_extract_credentials,
     mock_get_user_groups,
+    mock_validate_user_access,
     event_with_user,
+    es_create_query,
     create_dynamodb_client_function,
     create_es_client_function,
     dynamodb,
     create_sqs_client_function,
     sqs,
 ):
-    # Mock user credentials
-    mock_extract_credentials.return_value = {
-        "access_key": "mock_access_key",
-        "secret_key": "mock_secret_key",
-        "token": "mock_token",
-    }
-
     es_query_response = {
         "hits": {
             "total": {"value": 1, "relation": "eq"},
@@ -233,6 +257,9 @@ def test_handler_valid_call_id(
             linesOfBusiness=["RE", "AUP"],
         )
     ]
+
+    # Mock `validate_user_access` to return True
+    mock_validate_user_access.return_value = True
     create_es_client_function.return_value.search_documents = request_mock
     handler = build_handler(
         create_dynamodb_client_fn=create_dynamodb_client_function,
@@ -269,27 +296,37 @@ def test_handler_valid_call_id(
         )
 
 @mock.patch(
-    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.validate_user_access"
 )
 @mock.patch(
-    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.event_parser.extract_credentials"
+    "functions.transcribe_on_request_POST.transcribe_on_request_POST_handler.get_user_groups"
 )
 def test_handler_invalid_call_id(
-    mock_extract_credentials,
     mock_get_user_groups,
+    mock_validate_user_access,
     event_with_user,
+    es_create_query,
     create_dynamodb_client_function,
     create_es_client_function,
     create_sqs_client_function,
 ):
-    # Mock user credentials
-    mock_extract_credentials.return_value = {
-        "access_key": "mock_access_key",
-        "secret_key": "mock_secret_key",
-        "token": "mock_token",
-    }
+    request_mock = MagicMock(
+        return_value={
+            "hits": {
+                "total": {"value": 1, "relation": "eq"},
+                "hits": [
+                    {
+                        "_index": "call-details-000001",
+                        "_type": "_doc",
+                        "_id": "7654321",
+                        "_score": 4.227655,
+                        "_source": {},
+                    }
+                ],
+            },
+        }
+    )
 
-    # Mock user groups to simulate user with rights
     mock_get_user_groups.return_value = [
         PermissionGroup(
             id=GROUP_1_NAME,
@@ -300,36 +337,15 @@ def test_handler_invalid_call_id(
         )
     ]
 
-    # Mock Elasticsearch search_documents to return a response indicating invalid call_ids
-    request_mock = MagicMock(
-        return_value={
-            "hits": {
-                "total": {"value": 1, "relation": "eq"},
-                "hits": [
-                    {
-                        "_index": "call-details-000001",
-                        "_type": "_doc",
-                        "_id": "7654321",
-                        "_source": {},  # This ID is valid
-                    }
-                ],
-            },
-        }
-    )
+    # Mock `validate_user_access` to return True
+    mock_validate_user_access.return_value = True
     create_es_client_function.return_value.search_documents = request_mock
-
-    # Build the handler
     handler = build_handler(
         create_dynamodb_client_fn=create_dynamodb_client_function,
         create_es_client_fn=create_es_client_function,
         create_sqs_client_fn=create_sqs_client_function,
     )
-
-    # Invoke the handler
     response = handler(event_with_user, {})
 
-    # Assert that the response status is 400 (Bad Request)
     assert_status_code(response, 400)
-
-    # Assert the specific error message related to invalid call_ids
-    assert "Invalid call_ids: ['1234567']" in response["body"]
+    assert_error_message(response, "Invalid call_ids: ['1234567']")
