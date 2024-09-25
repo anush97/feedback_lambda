@@ -1,3 +1,2 @@
-if isinstance(auth, dict):
-	self.logger.info("Using dict for custom headers.") 
-	return None  
+if "distributor_number" in auth and "line_of_business" in auth:
+
